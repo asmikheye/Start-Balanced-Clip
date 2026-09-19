@@ -164,7 +164,14 @@ async def cookies_status(request: Request):
     """Check if a cookies file is configured."""
     require_trusted_config_request(request)
     cookies_path = os.path.join("data", "cookies.txt")
-    return {"configured": await asyncio.to_thread(os.path.exists, cookies_path)}
+    if await asyncio.to_thread(os.path.exists, cookies_path):
+        return {"configured": True, "source": "file"}
+    firefox_profile = os.environ.get("CLIPPYME_FIREFOX_PROFILE", "").strip()
+    if firefox_profile and await asyncio.to_thread(
+        os.path.isfile, os.path.join(firefox_profile, "cookies.sqlite")
+    ):
+        return {"configured": True, "source": "firefox"}
+    return {"configured": False, "source": None}
 
 
 @router.delete("/api/config/cookies")

@@ -1,0 +1,35 @@
+# Optional local settings for Windows. Copy this file to
+# docker-compose.override.yml and replace the Firefox profile path below.
+# The copied file is ignored by Git because it points to your browser data.
+services:
+  backend:
+    environment:
+      CLIPPYME_FIREFOX_PROFILE: /firefox-profile
+    volumes:
+      - type: bind
+        source: C:/Users/YOU/AppData/Roaming/Mozilla/Firefox/Profiles/YOUR_PROFILE
+        target: /firefox-profile
+        read_only: true
+    dns:
+      - 172.30.245.53
+    networks:
+      - clippyme-net
+      - dns-net
+    depends_on:
+      dnsproxy:
+        condition: service_started
+
+  dnsproxy:
+    image: adguard/dnsproxy@sha256:947f677c949acded008a938e7cd1b666579b16b56db5f53eb8136a63d2783e5a
+    command: ["-l", "0.0.0.0", "-p", "53", "-u", "https://1.1.1.1/dns-query", "--cache"]
+    networks:
+      dns-net:
+        ipv4_address: 172.30.245.53
+    restart: unless-stopped
+
+networks:
+  dns-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.245.0/24

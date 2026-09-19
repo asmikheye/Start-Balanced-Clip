@@ -132,6 +132,7 @@ export function SettingsView({ apiKey, onApiKey, cookiesConfigured, onCookiesCha
   const [zKey, setZKey] = useState('');
   const [accts, setAccts] = useState({ tiktok: '', instagram: '', youtube: '' });
   const [cookies, setCookies] = useState(!!cookiesConfigured);
+  const [cookiesSource, setCookiesSource] = useState(null);
   const [logoOn, setLogoOn] = useState(false);
   const [fonts, setFonts] = useState([]);
   const [provider, setProvider] = useState('deepgram');
@@ -174,7 +175,7 @@ export function SettingsView({ apiKey, onApiKey, cookiesConfigured, onCookiesCha
   useEffect(() => {
     refreshConfig().then(loadModels);
     getZernio().then((z) => { setZernioState(z); if (z.accounts) setAccts({ tiktok: '', instagram: '', youtube: '', ...z.accounts }); }).catch(() => {});
-    cookiesStatus().then((s) => setCookies(!!s.configured)).catch(() => {});
+    cookiesStatus().then((s) => { setCookies(!!s.configured); setCookiesSource(s.source); }).catch(() => {});
     logoStatus().then((s) => setLogoOn(!!s.configured)).catch(() => {});
     listFonts().then(({ fonts: f }) => setFonts(Array.isArray(f) ? f : [])).catch(() => {});
     // Mount-once bootstrap; loadModels reads the latest key via closure on call.
@@ -218,11 +219,11 @@ export function SettingsView({ apiKey, onApiKey, cookiesConfigured, onCookiesCha
   const onCookieFile = async (e) => {
     const f = e.target.files?.[0];
     if (!f) return;
-    try { await uploadCookies(f); setCookies(true); onCookiesChange?.(true); pushToast?.('success', 'Cookies uploaded'); }
+    try { await uploadCookies(f); setCookies(true); setCookiesSource('file'); onCookiesChange?.(true); pushToast?.('success', 'Cookies uploaded'); }
     catch { pushToast?.('error', 'Cookie upload failed'); }
   };
   const removeCookies = async () => {
-    try { await deleteCookies(); setCookies(false); onCookiesChange?.(false); pushToast?.('info', 'Cookies removed'); }
+    try { await deleteCookies(); const s = await cookiesStatus(); setCookies(!!s.configured); setCookiesSource(s.source); onCookiesChange?.(!!s.configured); pushToast?.('info', 'Cookies removed'); }
     catch { pushToast?.('error', 'Remove failed'); }
   };
 
@@ -373,13 +374,13 @@ export function SettingsView({ apiKey, onApiKey, cookiesConfigured, onCookiesCha
       <Panel title="Downloads" sub="For age- or region-restricted sources" icon="cookie">
         <div className="opt" style={{ borderBottom: 0 }}>
           <div className="oico"><Icon n="cookie" /></div>
-          <div className="otxt"><div className="ot">YouTube cookies</div><div className="od">{cookies ? 'Configured · restricted videos OK' : 'Not set · public videos only'}</div></div>
+          <div className="otxt"><div className="ot">YouTube cookies</div><div className="od">{cookiesSource === 'firefox' ? 'Firefox · read automatically for each download' : cookies ? 'Configured · restricted videos OK' : 'Not set · public videos only'}</div></div>
           <div className="r" style={{ gap: 8 }}>
             <label className="btn btn-secondary btn-sm" style={{ cursor: 'pointer' }}>
               <Icon n="upload" />Upload
               <input type="file" accept=".txt" hidden onChange={onCookieFile} />
             </label>
-            {cookies && <Btn variant="ghost" size="sm" icon="trash-2" onClick={removeCookies}>Remove</Btn>}
+            {cookiesSource === 'file' && <Btn variant="ghost" size="sm" icon="trash-2" onClick={removeCookies}>Remove</Btn>}
           </div>
         </div>
       </Panel>

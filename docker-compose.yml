@@ -31,9 +31,6 @@ services:
       # LAN. Override CLIPPYME_BIND (e.g. CLIPPYME_BIND=0.0.0.0) ONLY on a
       # network where every device is trusted.
       - "${CLIPPYME_BIND:-127.0.0.1}:8000:8000"
-    dns:
-      - 8.8.8.8
-      - 8.8.4.4
     environment:
       # HuggingFace token — required for pyannote diarization + Whisper
       # model downloads without rate limits. Both names are accepted.

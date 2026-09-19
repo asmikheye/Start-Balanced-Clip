@@ -242,9 +242,13 @@ def download_youtube_video(url, output_dir=".", cookies_file_path=None):
     step_start_time = time.time()
 
     cookies_path = _resolve_cookies_path(cookies_file_path)
+    firefox_profile = os.environ.get('CLIPPYME_FIREFOX_PROFILE', '').strip()
     if cookies_path:
         print(f"🍪 Using cookies file: {cookies_path}")
+    elif firefox_profile and os.path.isfile(os.path.join(firefox_profile, 'cookies.sqlite')):
+        print("🍪 Reading cookies from Firefox profile")
     else:
+        firefox_profile = ''
         print("⚠️ No cookies file found.")
 
     # Verbose mode can leak paths, request URLs and headers into job logs, so it
@@ -263,7 +267,6 @@ def download_youtube_video(url, output_dir=".", cookies_file_path=None):
             (os.environ.get('YTDLP_THROTTLED_RATE') or '').strip() or 100 * 1024
         ),
         'cachedir': False,
-        'remote_components': ['ejs:github'],
         'http_headers': {
             'User-Agent': (
                 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
@@ -272,6 +275,8 @@ def download_youtube_video(url, output_dir=".", cookies_file_path=None):
             ),
         },
     }
+    if firefox_profile and not cookies_path:
+        common_ydl_opts['cookiesfrombrowser'] = ('firefox', firefox_profile)
 
     chain = _player_client_chain()
     last_error = RuntimeError("download attempt chain was empty")

@@ -40,6 +40,7 @@ output/
 
 # Secrets
 .env
+docker-compose.override.yml
 data/
 config.json
 cookies.txt

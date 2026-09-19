@@ -147,6 +147,16 @@ All API keys, model selection, and cookies are managed **from the dashboard Sett
 | Zernio | Social publishing | Per-platform account IDs auto-discovered via "Discover from Zernio". |
 | Cookies | YouTube age-gated / region-locked content | Upload a Netscape `cookies.txt` from the Settings tab. Stored at `data/cookies.txt`, mode `0600`, max 10 MB. |
 
+For automatic Firefox cookies in Docker, mount a Firefox profile read-only and set
+`CLIPPYME_FIREFOX_PROFILE` to the mount target in the backend service. ClippyMe
+reads fresh cookies through yt-dlp on each download without exporting a cookie
+file. An uploaded `data/cookies.txt` takes precedence. On Windows, copy
+`docker-compose.override.example.yml` to `docker-compose.override.yml`, replace
+the Firefox profile path, and run `docker compose up -d`. The example also
+provides an optional DNS-over-HTTPS proxy for networks where ordinary DNS
+queries fail. The local override is ignored by Git and the Firefox profile must
+contain `cookies.sqlite`.
+
 Runtime env overrides (rarely needed):
 
 | Variable | Default | Purpose |

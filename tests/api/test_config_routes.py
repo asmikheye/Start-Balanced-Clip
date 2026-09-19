@@ -110,15 +110,24 @@ def test_models_lists_via_provided_key(client, monkeypatch):
 
 # --- cookies ----------------------------------------------------------------
 
-def test_cookies_upload_status_delete(client):
-    assert client.get("/api/config/cookies/status").json() == {"configured": False}
+def test_cookies_upload_status_delete(client, monkeypatch):
+    monkeypatch.delenv("CLIPPYME_FIREFOX_PROFILE", raising=False)
+    assert client.get("/api/config/cookies/status").json() == {"configured": False, "source": None}
 
     r = client.post("/api/config/cookies", files={"cookies_file": ("cookies.txt", NETSCAPE_COOKIES)})
     assert r.status_code == 200
-    assert client.get("/api/config/cookies/status").json() == {"configured": True}
+    assert client.get("/api/config/cookies/status").json() == {"configured": True, "source": "file"}
 
     assert client.request("DELETE", "/api/config/cookies").status_code == 200
-    assert client.get("/api/config/cookies/status").json() == {"configured": False}
+    assert client.get("/api/config/cookies/status").json() == {"configured": False, "source": None}
+
+
+def test_cookies_status_detects_firefox_profile(client, monkeypatch, tmp_path):
+    profile = tmp_path / "firefox"
+    profile.mkdir()
+    (profile / "cookies.sqlite").touch()
+    monkeypatch.setenv("CLIPPYME_FIREFOX_PROFILE", str(profile))
+    assert client.get("/api/config/cookies/status").json() == {"configured": True, "source": "firefox"}
 
 
 def test_cookies_reject_non_netscape(client):
