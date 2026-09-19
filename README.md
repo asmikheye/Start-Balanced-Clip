@@ -157,6 +157,11 @@ provides an optional DNS-over-HTTPS proxy for networks where ordinary DNS
 queries fail. The local override is ignored by Git and the Firefox profile must
 contain `cookies.sqlite`.
 
+If Zernio's default API host (`zernio.com`) fails the TLS handshake on your
+network, the local override can set `ZERNIO_BASE_URL` to
+`https://api.zernio.com/api/v1`. Confirm the API key and connected account with
+Settings → Discover from Zernio before retrying publication.
+
 Runtime env overrides (rarely needed):
 
 | Variable | Default | Purpose |

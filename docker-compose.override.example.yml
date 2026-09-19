@@ -5,6 +5,8 @@ services:
   backend:
     environment:
       CLIPPYME_FIREFOX_PROFILE: /firefox-profile
+      # If zernio.com closes TLS connections on your network, use its API host:
+      # ZERNIO_BASE_URL: https://api.zernio.com/api/v1
     volumes:
       - type: bind
         source: C:/Users/YOU/AppData/Roaming/Mozilla/Firefox/Profiles/YOUR_PROFILE
