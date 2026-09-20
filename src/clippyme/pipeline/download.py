@@ -303,6 +303,7 @@ def _write_source_info(output_dir, info):
         uploader_id = info.get("uploader_id") or info.get("channel_id")
         banner = suggest_banner(channel_url or webpage_url or "", channel_hint=uploader_id)
         data = {
+            "title": info.get("title"),
             "uploader_id": uploader_id,
             "channel_url": channel_url,
             "webpage_url": webpage_url,

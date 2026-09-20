@@ -22,7 +22,7 @@ const FALLBACK_MODELS = [
   { name: 'gemini-2.5-pro', display_name: 'Gemini 2.5 Pro — max quality' },
 ];
 
-export function HistoryView({ history, availableIds, onOpen, onDelete, onClear }) {
+export function HistoryView({ history, availableIds, titles = {}, onOpen, onDelete, onClear }) {
   if (!history.length) {
     return (
       <div className="container narrow fade-in">
@@ -46,6 +46,7 @@ export function HistoryView({ history, availableIds, onOpen, onDelete, onClear }
       </div>
       <Panel pad={false} className="hlist">
         {history.map((h) => {
+          const title = titles[h.jobId] || h.title || h.source || h.jobId;
           // `availableIds` is the set of jobs whose files still exist on disk
           // (null = backend not reached yet → assume available, don't disable).
           // An entry whose files were wiped by a rebuild is shown muted + flagged
@@ -56,14 +57,14 @@ export function HistoryView({ history, availableIds, onOpen, onDelete, onClear }
           return (
             <div className="hrow" key={h.jobId}
               role={ok ? 'button' : undefined} tabIndex={ok ? 0 : undefined}
-              aria-label={ok ? `Open job ${h.title || h.source || h.jobId}` : undefined}
+              aria-label={ok ? `Open job ${title}` : undefined}
               onClick={() => ok && onOpen(h)}
               onKeyDown={(e) => { if (ok && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onOpen(h); } }}
               style={{ cursor: ok ? 'pointer' : 'default', opacity: removed ? 0.55 : 1 }}>
               <div className="hthumb" style={{ background: removed ? 'var(--bg-4)' : 'var(--grad-viral)' }}>{h.clipCount ?? 0}</div>
               <div style={{ minWidth: 0 }}>
-                <div className="ht" title={h.title || h.source || h.jobId}
-                  style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.title || h.source || h.jobId}</div>
+                <div className="ht" title={title}
+                  style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</div>
                 <div className="hm">
                   <Icon n={h.sourceType === 'url' ? 'globe' : 'file-video'} style={{ width: 11, height: 11, verticalAlign: '-1px', marginRight: 5 }} />
                   {removed ? 'Files removed (rebuild/cleanup) · delete to dismiss'

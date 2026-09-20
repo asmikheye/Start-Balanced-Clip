@@ -14,7 +14,7 @@ import { PublishModal } from './publish';
 import { HistoryView, SettingsView, ApiKeyModal } from './views';
 import { LiveMonitorView } from './live';
 import { EditClipModal } from './captions';
-import { optsToPreselections, restoreJob, listBackendJobIds, deleteHistoryJob, cancelJob, pauseJob, resumeJob, stopJob, reframeClip, composeClip } from './realApi';
+import { optsToPreselections, restoreJob, listBackendJobs, deleteHistoryJob, cancelJob, pauseJob, resumeJob, stopJob, reframeClip, composeClip } from './realApi';
 import { allPresets, getDefaultPresetOpts, getDefaultPresetId, saveUserPreset, deleteUserPreset, setDefaultPreset } from './presets';
 import { HOOK_STYLE_DEFAULT } from './data';
 import { clipStateToParams, buildBulkPlan } from '../lib/bulkApply';
@@ -121,6 +121,7 @@ export default function RedesignApp() {
   // don't disable anything). Reconciles the localStorage history list against
   // reality so jobs wiped by a rebuild are flagged instead of dead-clicking.
   const [availableJobIds, setAvailableJobIds] = useState(null);
+  const [historyTitles, setHistoryTitles] = useState({});
 
   const { history, saveToHistory, deleteFromHistory } = useHistory();
   const { cookiesConfigured, setCookiesConfigured } = useBackendStatus();
@@ -142,12 +143,17 @@ export default function RedesignApp() {
   };
 
   useEffect(() => { if (apiKey) localStorage.setItem('gemini_key', apiKey); }, [apiKey]);
-  // Refresh the on-disk job set whenever the History tab opens, so a job whose
-  // files were removed (rebuild/cleanup) shows as unavailable rather than
-  // failing silently when clicked.
+  // Refresh on-disk titles and availability whenever History opens.
+  const refreshBackendHistory = useCallback(async () => {
+    const jobs = await listBackendJobs();
+    if (!jobs) return;
+    setAvailableJobIds(new Set(jobs.map((job) => job.jobId).filter(Boolean)));
+    setHistoryTitles(Object.fromEntries(jobs.filter((job) => job.jobId && job.title)
+      .map((job) => [job.jobId, job.title])));
+  }, []);
   useEffect(() => {
-    if (tab === 'history' && !viewingHistory) listBackendJobIds().then(setAvailableJobIds);
-  }, [tab, viewingHistory]);
+    if (tab === 'history' && !viewingHistory) refreshBackendHistory();
+  }, [tab, viewingHistory, refreshBackendHistory]);
   useSessionPersistence({ status, jobId, results, processingMedia, activeTab: tab, preselections });
 
   const dismissToast = useCallback((id) => setToasts((items) => items.filter((item) => item.id !== id)), []);
@@ -219,7 +225,7 @@ export default function RedesignApp() {
       else pushToast('error', 'Delete failed — could not remove the files');
       return;
     }
-    listBackendJobIds().then(setAvailableJobIds);
+    refreshBackendHistory();
   };
 
   const onClearHistory = async () => {
@@ -238,7 +244,7 @@ export default function RedesignApp() {
     if (removed === jobs.length) pushToast('info', 'History cleared');
     else if (removed === 0) pushToast('error', 'Could not delete jobs — is the backend up?');
     else pushToast('warn', `Deleted ${removed}/${jobs.length} jobs — the rest are still processing`);
-    listBackendJobIds().then(setAvailableJobIds);
+    refreshBackendHistory();
   };
 
   useJobPolling({
@@ -255,6 +261,7 @@ export default function RedesignApp() {
         status: 'complete',
         timestamp: Date.now(),
         source: processingMedia?.type === 'url' ? processingMedia.payload : processingMedia?.payload?.name || 'Local file',
+        title: data.result?.source_info?.title || undefined,
         sourceType: processingMedia?.type || 'file',
         clipCount: data.result?.clips?.length || 0,
         cost: data.result?.cost_analysis?.total_cost || null,
@@ -271,6 +278,7 @@ export default function RedesignApp() {
         status: 'stopped',
         timestamp: Date.now(),
         source: processingMedia?.type === 'url' ? processingMedia.payload : processingMedia?.payload?.name || 'Local file',
+        title: data.result?.source_info?.title || undefined,
         sourceType: processingMedia?.type || 'file',
         clipCount: data.result?.clips?.length || 0,
         cost: data.result?.cost_analysis?.total_cost || null,
@@ -461,7 +469,7 @@ export default function RedesignApp() {
       {tab === 'live' && <LiveMonitorView pushToast={pushToast} />}
 
       {tab === 'history' && !viewingHistory && (
-        <HistoryView history={history} availableIds={availableJobIds}
+        <HistoryView history={history} availableIds={availableJobIds} titles={historyTitles}
           onOpen={openHistoryJob}
           onDelete={onDeleteHistoryJob}
           onClear={onClearHistory} />

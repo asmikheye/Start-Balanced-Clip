@@ -125,3 +125,13 @@ test('history row shows the video title and a published-count badge when clips w
   expect(screen.getByText('other video')).toBeInTheDocument();
   expect(screen.queryByText('0 published')).toBeNull();
 });
+
+test('history row uses the backend title for a URL saved in browser history', () => {
+  const history = [{ jobId: 'job-1', status: 'complete', clipCount: 1,
+    source: 'https://www.youtube.com/watch?v=abc', timestamp: Date.now() }];
+  render(<HistoryView history={history} titles={{ 'job-1': 'Original video title' }}
+    availableIds={new Set(['job-1'])} onOpen={vi.fn()} onDelete={vi.fn()} onClear={vi.fn()} />);
+
+  expect(screen.getByText('Original video title')).toBeInTheDocument();
+  expect(screen.queryByText('https://www.youtube.com/watch?v=abc')).toBeNull();
+});

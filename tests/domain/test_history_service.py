@@ -90,6 +90,17 @@ def test_scan_history_surfaces_title_matching_source(tmp_path):
     assert out[0]["title"] == out[0]["source"] == "myvideo"
 
 
+def test_scan_history_prefers_original_source_title(tmp_path):
+    job_dir = _make_job(str(tmp_path), VALID_UUID, clips=[{"start": 0, "end": 10}])
+    with open(os.path.join(job_dir, "myvideo_metadata.json"), "w", encoding="utf-8") as f:
+        json.dump({"shorts": [{"start": 0, "end": 10}],
+                   "source_info": {"title": "Исходное видео: часть 1?"}}, f,
+                  ensure_ascii=False)
+    out = hs.scan_history(str(tmp_path))
+    assert out[0]["title"] == "Исходное видео: часть 1?"
+    assert out[0]["source"] == "myvideo"
+
+
 def test_scan_history_resolves_title_based_clip_filename(tmp_path):
     # New-format metadata (task 4): file on disk is the sanitized-title name,
     # persisted as clip_filename, not the positional myvideo_clip_1.mp4.

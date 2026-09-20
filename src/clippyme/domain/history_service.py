@@ -52,7 +52,7 @@ def scan_history(output_dir: str) -> List[dict]:
             # consistent with job_results._pick_latest_metadata.
             meta_files.sort(key=os.path.getmtime, reverse=True)
             try:
-                with open(meta_files[0], "r") as f:
+                with open(meta_files[0], "r", encoding="utf-8") as f:
                     data = json.load(f)
                 clips = data.get("shorts", [])
                 clip_files = []
@@ -71,14 +71,16 @@ def scan_history(output_dir: str) -> List[dict]:
                         )
                 dir_mtime = os.path.getmtime(job_dir)
                 cost_analysis = data.get("cost_analysis") or {}
-                # No top-level source-video title lives in metadata today, so
-                # derive one from the filename the same way `source` already
-                # does — additive alias for the frontend, not new data.
+                # Older jobs have no original title; their metadata filename
+                # still gives a readable fallback.
                 source = (
                     os.path.basename(meta_files[0])
                     .replace("_metadata.json", "")
                     .replace("_", " ")
                 )
+                source_info = data.get("source_info") or {}
+                original_title = source_info.get("title") if isinstance(source_info, dict) else None
+                title = original_title.strip() if isinstance(original_title, str) and original_title.strip() else source
                 published_count = sum(1 for c in clip_files if c["published"])
                 results.append(
                     {
@@ -88,7 +90,7 @@ def scan_history(output_dir: str) -> List[dict]:
                         "clips": clip_files,
                         "cost": cost_analysis.get("total_cost"),
                         "source": source,
-                        "title": source,
+                        "title": title,
                         "publishedCount": published_count,
                     }
                 )
