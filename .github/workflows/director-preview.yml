@@ -26,6 +26,7 @@ jobs:
           src/clippyme/pipeline/main.py
           src/clippyme/api/schemas.py
           src/clippyme/domain/job_results.py
+          src/clippyme/domain/reframe_service.py
       - name: Director unit tests
         run: python -m pytest -q tests/pipeline/test_director_camera.py
 
