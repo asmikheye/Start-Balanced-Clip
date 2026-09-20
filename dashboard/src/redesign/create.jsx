@@ -311,9 +311,9 @@ function OptionsPanel({ opts, set }) {
       )}
       <div className="opt">
         <div className="oico"><Icon n="scan-face" /></div>
-        <div className="otxt"><div className="ot">Reframe</div><div className="od">Auto face-track · Subject FrameShift crop · Off letterbox bands</div></div>
+        <div className="otxt"><div className="ot">Reframe</div><div className="od">Director speaker cuts · Auto face-track · Subject crop · Off letterbox</div></div>
         <div className="r"><Segmented value={(opts.reframeMode === 'object' ? 'subject' : opts.reframeMode) || (opts.reframe === false ? 'disabled' : 'auto')} onChange={(id) => set({ reframeMode: id })}
-          options={[{ id: 'auto', label: 'Auto' }, { id: 'subject', label: 'Subject' }, { id: 'disabled', label: 'Off' }]} /></div>
+          options={[{ id: 'director', label: 'Director' }, { id: 'auto', label: 'Auto' }, { id: 'subject', label: 'Subject' }, { id: 'disabled', label: 'Off' }]} /></div>
       </div>
       {((opts.reframeMode === 'disabled') || (!opts.reframeMode && opts.reframe === false)) && (
         <div className="opt">
