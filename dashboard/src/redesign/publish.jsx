@@ -61,7 +61,6 @@ export function PublishModal({ clips, jobId, clipStates = {}, preselections, onC
   const [zernio, setZernio] = useState(null);
   const [plats, setPlats] = useState({ tiktok: true, ig: true, yt: false });
   const [schedule, setSchedule] = useState(true);
-  const [caption, setCaption] = useState(clips[0]?.tiktok_caption || clips[0]?.video_title_for_youtube_short || '');
   const [stage, setStage] = useState('setup'); // setup | uploading | done
   const [progress, setProgress] = useState({});
 
@@ -99,7 +98,7 @@ export function PublishModal({ clips, jobId, clipStates = {}, preselections, onC
     const title = (clip.video_title_for_youtube_short || `Clip ${idx + 1}`).slice(0, 100);
     return {
       title,
-      caption: (caption && caption.trim()) || title,
+      caption: title,
       platforms: targets,
       schedule_mode: schedule ? 'auto' : 'now',
       ...(schedule ? { start_date: localDatePlus(batchPos) } : {}),
@@ -181,10 +180,6 @@ export function PublishModal({ clips, jobId, clipStates = {}, preselections, onC
                           onClick={() => has ? toggle(p.id) : pushToast?.('warn', `No ${PLAT[p.id].label} account saved`)} />;
                       })}
                     </div>
-                  </div>
-                  <div className="field">
-                    <span className="field-label">Caption</span>
-                    <textarea className="ta" rows="3" value={caption} onChange={(e) => setCaption(e.target.value)}></textarea>
                   </div>
                   <div className="opt" style={{ borderBottom: 0 }}>
                     <div className="oico"><Icon n="calendar-clock" /></div>
