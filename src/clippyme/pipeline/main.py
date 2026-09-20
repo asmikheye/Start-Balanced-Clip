@@ -753,9 +753,10 @@ if __name__ == '__main__':
     parser.add_argument('-c', '--cookies', type=str, help="Path to cookies.txt file for yt-dlp")
     parser.add_argument('--instructions', type=str, help="Custom instructions for AI clip selection (e.g., 'find the funniest parts')")
     parser.add_argument('--no-zoom', action='store_true', help="Disable subtle auto-zoom effect on clips")
-    parser.add_argument('--reframe-mode', choices=['auto', 'disabled', 'subject', 'object'], default='auto',
-                        help='Reframe mode: auto (face tracking), subject (FrameShift face-first '
-                             'crop; "object" is a legacy alias), or disabled (4:3 crop with black bars)')
+    parser.add_argument('--reframe-mode', choices=['auto', 'director', 'disabled', 'subject', 'object'], default='auto',
+                        help='Reframe mode: auto (face tracking), director (diarized speaker cuts), '
+                             'subject (FrameShift face-first crop; "object" is a legacy alias), '
+                             'or disabled (4:3 crop with black bars)')
     parser.add_argument('--letterbox-zoom', type=float, default=0.0,
                         help="Fixed zoom for --reframe-mode disabled: 0 = whole frame between the "
                              "black bars, 0.05-0.15 (or 5-15) crops that fraction off the width.")
@@ -1073,15 +1074,28 @@ if __name__ == '__main__':
                     print(f"   ❌ ffmpeg cut TIMED OUT after 10 min — skipping this clip. Input may be corrupt or seek is stuck.", flush=True)
                     continue
 
-                # Process vertical from the preserved source slice. Ken Burns
-                # zoom rides inside the master encode (zoom_end) — see
+                # Process vertical from the preserved source slice. Director
+                # gets clip-relative diarized words from the transcript; other
+                # modes keep the old call path byte-for-byte.
+                director_words = None
+                if args.reframe_mode == 'director':
+                    from clippyme.pipeline.director_camera import extract_clip_diarized_words
+                    director_words = extract_clip_diarized_words(transcript, start, end)
+                    if director_words:
+                        speaker_count = len({w['speaker'] for w in director_words})
+                        print(f"   🎬 Director transcript: {speaker_count} speaker(s), {len(director_words)} word(s)")
+                    else:
+                        print("   ⚠️ Director: no diarization labels in this clip; visual fallback will be used.")
+
+                # Ken Burns zoom rides inside the master encode (zoom_end) — see
                 # process_video_to_vertical; the old apply_subtle_zoom pass
                 # only runs as its internal fallback.
                 success = process_video_to_vertical(
                     clip_source_path, clip_final_path,
                     reframe_mode=args.reframe_mode,
                     zoom_end=None if args.no_zoom else 1.05,
-                    aspect_ratio=aspect_ratio, letterbox_zoom=letterbox_zoom)
+                    aspect_ratio=aspect_ratio, letterbox_zoom=letterbox_zoom,
+                    director_words=director_words)
 
                 if success:
                     normalize_audio(clip_final_path)
