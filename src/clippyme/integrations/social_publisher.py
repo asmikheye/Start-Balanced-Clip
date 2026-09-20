@@ -493,7 +493,6 @@ def publish_clip(
         else:
             target_day = now.date() + timedelta(days=1) if now.hour >= 22 else now.date()
         date_iso = target_day.strftime("%Y-%m-%d")
-        occupancy_known = True
         try:
             posts = client.list_scheduled_posts(date_iso, date_iso)
             occupied: list[datetime] = []
@@ -511,12 +510,7 @@ def publish_clip(
                 except ValueError:
                     continue
         except ZernioError as e:
-            logger.warning(
-                "SmartScheduler: scheduling WITHOUT collision data — "
-                "Zernio list_scheduled_posts failed: %s", e,
-            )
-            occupied = []
-            occupancy_known = False
+            raise ZernioError(f"Could not check scheduled posts: {e}", status_code=e.status_code, body=e.body) from e
 
         # Verbose scheduling trace — lets the operator see exactly which
         # slots were considered occupied and which slot was picked.
@@ -525,7 +519,7 @@ def publish_clip(
         windows_str = ", ".join(f"{s:02d}-{e:02d}" for s, e in windows)
         occupied_str = (
             ", ".join(o.strftime("%H:%M") for o in sorted(occupied))
-            or ("UNAVAILABLE (collision data missing)" if not occupancy_known else "none")
+            or "none"
         )
         logger.info(
             "SmartScheduler: day=%s (%s), prime-time windows=[%s], already occupied: [%s], min_gap=%ds",

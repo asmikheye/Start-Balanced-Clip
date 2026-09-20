@@ -302,6 +302,29 @@ def test_auto_schedule_uses_configured_timezone_not_server_local(monkeypatch, tm
     assert captured["scheduled_for"] == result["scheduled_for"]
 
 
+def test_auto_schedule_stops_if_existing_posts_cannot_be_checked(monkeypatch, tmp_path):
+    clip = tmp_path / "clip.mp4"
+    clip.write_bytes(b"video")
+
+    class Client:
+        def __init__(self, api_key):
+            pass
+
+        def list_scheduled_posts(self, *args):
+            raise sp.ZernioError("network error")
+
+        def presign_upload(self, *args, **kwargs):
+            pytest.fail("upload must not start without collision data")
+
+    monkeypatch.setattr(sp, "ZernioClient", Client)
+    with pytest.raises(sp.ZernioError, match="Could not check scheduled posts"):
+        sp.publish_clip(
+            api_key="sk_test", clip_path=str(clip), title="title", caption="title",
+            platform_targets=[{"platform": "youtube", "accountId": "a"}],
+            schedule_mode="auto", timezone="Europe/Rome",
+        )
+
+
 def test_presigned_upload_dns_failure_is_fail_closed(monkeypatch):
     import socket
 

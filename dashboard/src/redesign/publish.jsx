@@ -1,7 +1,4 @@
-// ClippyMe redesign — PublishModal: real concurrent publish to Zernio.
-// Every selected clip is published in parallel (Promise.allSettled) — the fix
-// for the old sequential stall — each row showing live queued→uploading→
-// live/error status. Per-clip compose_first honours the clip's toggles.
+// ClippyMe redesign — PublishModal: publish selected clips to Zernio.
 import { useState, useEffect, useRef } from 'react';
 import { Icon, Social, Btn, Switch, PlatPill, PLATFORMS } from './primitives';
 import { LazyVideo } from './LazyVideo';
@@ -19,7 +16,7 @@ export const PLAT = {
   yt: { platform: 'youtube', acct: 'youtube', icon: 'youtube', label: 'Shorts' },
 };
 
-function PubRow({ clip, idx, st, plats }) {
+function PubRow({ clip, idx, st, plats, mode }) {
   // `st` is either a status string or { state, error } so we can surface the
   // real failure reason instead of a bare "failed".
   const status = typeof st === 'object' && st ? st.state : st;
@@ -47,9 +44,10 @@ function PubRow({ clip, idx, st, plats }) {
           <span className={'pstat' + (done ? ' done' : status === 'uploading' ? '' : ' wait')}
             style={error ? { color: 'var(--danger)' } : undefined}
             title={error && errMsg ? errMsg : undefined}>
-            {error ? (errMsg ? `failed: ${errMsg.slice(0, 60)}` : 'failed') : done ? 'live' : status === 'uploading' ? 'uploading' : 'queued'}
+            {error ? 'failed' : done ? (mode === 'auto' ? 'scheduled' : 'sent') : status === 'uploading' ? 'uploading' : 'waiting'}
           </span>
         </div>
+        {error && errMsg && <div role="alert" style={{ color: 'var(--danger)', fontSize: 12, overflowWrap: 'anywhere', marginTop: 5 }}>{errMsg}</div>}
       </div>
       <div className="pcheck"><Icon n={done ? 'check' : error ? 'x' : 'loader'} /></div>
     </div>
@@ -63,11 +61,15 @@ export function PublishModal({ clips, jobId, clipStates = {}, preselections, onC
   const [schedule, setSchedule] = useState(true);
   const [stage, setStage] = useState('setup'); // setup | uploading | done
   const [progress, setProgress] = useState({});
+  const [runMode, setRunMode] = useState(null);
+  const [outcome, setOutcome] = useState({ ok: 0, fail: 0 });
 
   useEffect(() => { getZernio().then(setZernio).catch(() => setZernio({ configured: false })); }, []);
 
-  // Accessibility: focus trap + Escape-to-close + focus restore.
-  const panelRef = useModalA11y(onClose);
+  // Keep the batch visible until its in-flight request finishes. Closing it
+  // mid-request makes it easy to start the same publish again.
+  const close = () => { if (stage !== 'uploading') onClose(); };
+  const panelRef = useModalA11y(close);
 
   // Guard the post-publish setTimeout so it never calls setState after the
   // modal has been unmounted (e.g. parent closes it while the delay is in flight).
@@ -86,7 +88,7 @@ export function PublishModal({ clips, jobId, clipStates = {}, preselections, onC
   // scheduling, each clip gets its own day (start_date = today + batchPos) so
   // a per-platform daily cap doesn't reject the tail of the batch — replicates
   // the one-clip-per-day spacing from the original publisher.
-  const buildBody = (clip, idx, batchPos = 0) => {
+  const buildBody = (clip, idx, batchPos = 0, mode = 'auto') => {
     const cs = clipStates[idx] || {};
     const toggles = cs.toggles ?? seedToggles(preselections);
     const any = Object.values(toggles).some(Boolean);
@@ -100,8 +102,8 @@ export function PublishModal({ clips, jobId, clipStates = {}, preselections, onC
       title,
       caption: title,
       platforms: targets,
-      schedule_mode: schedule ? 'auto' : 'now',
-      ...(schedule ? { start_date: localDatePlus(batchPos) } : {}),
+      schedule_mode: mode,
+      ...(mode === 'auto' ? { start_date: localDatePlus(batchPos) } : {}),
       timezone: zernio?.timezone || 'Europe/Rome',
       tiktok_settings: plats.tiktok && accounts.tiktok ? {
         privacy_level: 'PUBLIC_TO_EVERYONE', allow_comment: true, allow_duet: true,
@@ -111,53 +113,59 @@ export function PublishModal({ clips, jobId, clipStates = {}, preselections, onC
     };
   };
 
-  const run = async () => {
+  const run = async (mode, retryFailed = false) => {
+    if (!ready) return;
+    const pending = clips.map((clip, batchPos) => ({ clip, batchPos }))
+      .filter(({ clip }) => !retryFailed || progress[clip._idx]?.state === 'error');
+    if (!pending.length) return;
+    setRunMode(mode);
     setStage('uploading');
-    const init = {};
-    clips.forEach((c) => { init[c._idx] = { state: 'uploading' }; });
-    setProgress(init);
-    const results = await Promise.allSettled(clips.map(async (clip, batchPos) => {
+    if (!retryFailed) setProgress({});
+    let ok = retryFailed ? outcome.ok : 0;
+    let fail = 0;
+    // Compose and upload one clip at a time. A batch can contain large videos;
+    // concurrent ffmpeg renders and uploads compete for the same resources.
+    for (const { clip, batchPos } of pending) {
       const idx = clip._idx;
       // Resolve to the backend's ABSOLUTE `shorts` position for the actual
       // publish call — `idx` (array position) stays the key into local
       // clipStates/progress, which are unaffected by a manual-publish gap.
       const apiIdx = clip._apiIdx ?? idx;
+      setProgress((p) => ({ ...p, [idx]: { state: 'uploading' } }));
       try {
-        await publishClip(jobId, apiIdx, buildBody(clip, idx, batchPos));
+        const result = await publishClip(jobId, apiIdx, buildBody(clip, idx, batchPos, mode));
+        if (result?.success === false) throw new Error('Zernio did not accept this post');
         setProgress((p) => ({ ...p, [idx]: { state: 'done' } }));
-        onPublished?.(idx);
-        return true;
+        ok += 1;
+        try { onPublished?.(idx, mode); } catch { /* The post was accepted; local state is best-effort. */ }
       } catch (e) {
         // Surface the real reason (e.g. a Zernio daily-limit 429) instead of a
         // bare "failed", so the user knows to retry that platform tomorrow.
         setProgress((p) => ({ ...p, [idx]: { state: 'error', error: e?.message || 'Publish failed' } }));
-        return false;
+        fail += 1;
       }
-    }));
-    const ok = results.filter((r) => r.status === 'fulfilled' && r.value).length;
-    const fail = clips.length - ok;
-    setTimeout(() => {
-      if (!mountedRef.current) return;
-      setStage('done');
-      pushToast?.(fail === 0 ? 'success' : 'warn', `Published ${ok}/${clips.length}${fail ? `, ${fail} failed` : ''}`);
-    }, 500);
+    }
+    if (!mountedRef.current) return;
+    setOutcome({ ok, fail });
+    setStage('done');
+    pushToast?.(fail === 0 ? 'success' : 'warn', `${mode === 'auto' ? 'Scheduled' : 'Sent'} ${ok}/${clips.length}${fail ? `, ${fail} failed` : ''}`);
   };
 
-  const title = stage === 'done' ? (schedule ? 'Scheduled' : 'Published')
+  const title = stage === 'done' ? (outcome.fail ? 'Publishing incomplete' : runMode === 'auto' ? 'Scheduled' : 'Sent to Zernio')
     : all ? `Publish ${clips.length} clips` : `Publish · ${clips[0]?.video_title_for_youtube_short || ''}`;
 
   return (
     // Backdrop click is a mouse-only convenience; keyboard users close via
     // Esc (useModalA11y). currentTarget guard replaces stopPropagation.
-    <div className="overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="overlay" onClick={(e) => { if (e.target === e.currentTarget) close(); }}>
       <div className={'modal' + (all ? ' wide' : '')} ref={panelRef}
         role="dialog" aria-modal="true" aria-labelledby="publish-modal-title">
         <div className="modal-head">
           <div>
             <h3 id="publish-modal-title">{title}</h3>
-            {stage === 'uploading' && <div className="mh-sub">uploading concurrently · daily-limit checks server-side</div>}
+            {stage === 'uploading' && <div className="mh-sub">Preparing and uploading clips one at a time</div>}
           </div>
-          <button className="x" onClick={onClose} aria-label="Close"><Icon n="x" /></button>
+          <button className="x" onClick={close} disabled={stage === 'uploading'} aria-label="Close"><Icon n="x" /></button>
         </div>
 
         {stage === 'setup' && (
@@ -184,7 +192,7 @@ export function PublishModal({ clips, jobId, clipStates = {}, preselections, onC
                   <div className="opt" style={{ borderBottom: 0 }}>
                     <div className="oico"><Icon n="calendar-clock" /></div>
                     <div className="otxt"><div className="ot">Schedule for prime time</div><div className="od">SmartScheduler picks the slot · off = publish now</div></div>
-                    <div className="r"><Switch on={schedule} onChange={setSchedule} /></div>
+                    <div className="r"><Switch on={schedule} onChange={setSchedule} label="Schedule for prime time" /></div>
                   </div>
                 </>
               )}
@@ -192,8 +200,7 @@ export function PublishModal({ clips, jobId, clipStates = {}, preselections, onC
             <div className="modal-foot">
               <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
               <div className="mf-right">
-                <Btn variant="secondary" icon="send" disabled={!ready} onClick={() => { setSchedule(false); run(); }}>Publish now</Btn>
-                <Btn variant="grad" icon="calendar-clock" disabled={!ready} onClick={run}>{schedule ? 'Schedule' : 'Queue'}</Btn>
+                <Btn variant="grad" icon={schedule ? 'calendar-clock' : 'send'} disabled={!ready} onClick={() => run(schedule ? 'auto' : 'now')}>{schedule ? 'Schedule' : 'Publish now'}</Btn>
               </div>
             </div>
           </>
@@ -202,7 +209,7 @@ export function PublishModal({ clips, jobId, clipStates = {}, preselections, onC
         {stage === 'uploading' && (
           <div className="modal-body">
             <div className="pubgrid">
-              {clips.map((c) => <PubRow key={c._idx} clip={c} idx={c._idx} st={progress[c._idx]} plats={plats} />)}
+              {clips.map((c) => <PubRow key={c._idx} clip={c} idx={c._idx} st={progress[c._idx]} plats={plats} mode={runMode} />)}
             </div>
           </div>
         )}
@@ -210,13 +217,17 @@ export function PublishModal({ clips, jobId, clipStates = {}, preselections, onC
         {stage === 'done' && (
           <div className="modal-body" style={{ textAlign: 'center', padding: '36px 24px' }}>
             <div style={{ width: 60, height: 60, borderRadius: '50%', background: 'var(--success-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 18px' }}>
-              <Icon n={schedule ? 'calendar-check' : 'party-popper'} style={{ width: 28, height: 28, color: 'var(--brand-teal)' }} />
+              <Icon n={outcome.fail ? 'x' : runMode === 'auto' ? 'calendar-check' : 'check'} style={{ width: 28, height: 28, color: outcome.fail ? 'var(--danger)' : 'var(--brand-teal)' }} />
             </div>
-            <div style={{ fontWeight: 700, fontSize: 18 }}>{all ? `${clips.length} clips ` : 'Clip '}{schedule ? 'scheduled' : 'published'}</div>
+            <div style={{ fontWeight: 700, fontSize: 18 }}>{outcome.ok}/{clips.length} clips {runMode === 'auto' ? 'scheduled' : 'sent'}</div>
             <p style={{ color: 'var(--fg-3)', fontSize: 13.5, marginTop: 8, lineHeight: 1.5 }}>
-              {schedule ? 'Queued via Zernio for the next prime-time slot.' : 'Sent to Zernio for immediate publish.'}
+              {outcome.fail ? `${outcome.fail} failed. Check the errors below and retry only those clips.` : runMode === 'auto' ? 'Scheduled in Zernio for prime time.' : 'Sent to Zernio for immediate publishing.'}
             </p>
-            <div style={{ marginTop: 22 }}><Btn variant="secondary" onClick={onClose}>Done</Btn></div>
+            {outcome.fail > 0 && <div className="pubgrid" style={{ marginTop: 18, textAlign: 'left' }}>{clips.filter((c) => progress[c._idx]?.state === 'error').map((c) => <PubRow key={c._idx} clip={c} idx={c._idx} st={progress[c._idx]} plats={plats} mode={runMode} />)}</div>}
+            <div style={{ marginTop: 22, display: 'flex', justifyContent: 'center', gap: 10 }}>
+              {outcome.fail > 0 && <Btn variant="grad" onClick={() => run(runMode, true)}>Retry failed</Btn>}
+              <Btn variant="secondary" onClick={onClose}>Done</Btn>
+            </div>
           </div>
         )}
       </div>
