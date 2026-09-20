@@ -97,6 +97,10 @@ services:
       # REFRAME_STATIC_AUTO=0 to fall back to the per-frame eased smoother.
       - REFRAME_STATIC_AUTO=${REFRAME_STATIC_AUTO:-}
       - REFRAME_MOTION_WIDE_THRESH=${REFRAME_MOTION_WIDE_THRESH:-0.12}
+      # DIRECTOR mode: offline diarization drives hard virtual-camera cuts.
+      # LEAD anticipates a speaker change; MIN_HOLD suppresses rapid ping-pong.
+      - REFRAME_DIRECTOR_LEAD_MS=${REFRAME_DIRECTOR_LEAD_MS:-200}
+      - REFRAME_DIRECTOR_MIN_HOLD_MS=${REFRAME_DIRECTOR_MIN_HOLD_MS:-1000}
       # Opt-in: content-aware crop for faceless (GENERAL) scenes instead of
       # letterboxing (Sobel saliency). Default off = byte-identical letterbox.
       - REFRAME_SALIENT_GENERAL=${REFRAME_SALIENT_GENERAL:-}
