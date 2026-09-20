@@ -79,6 +79,7 @@ test('pipelineStepMeta.detect reflects the Gemini model or the no-AI fallback', 
 
 test('pipelineStepMeta.reframe reflects the user-chosen mode (incl. legacy boolean)', () => {
   assert.equal(pipelineStepMeta([], { reframeMode: 'auto' }).reframe, 'face tracking');
+  assert.equal(pipelineStepMeta([], { reframeMode: 'director' }).reframe, 'director cuts');
   assert.equal(pipelineStepMeta([], { reframeMode: 'object' }).reframe, 'object crop');
   assert.equal(pipelineStepMeta([], { reframeMode: 'disabled' }).reframe, '4:3 · bars');
   assert.equal(pipelineStepMeta([], { reframe: false }).reframe, '4:3 · bars'); // legacy back-compat
