@@ -9,6 +9,7 @@ import { LogoControls, GradeControls } from './layerControls';
 import { BannerControls } from './bannerControls';
 
 export const REFRAME_OPTS = [
+  { id: 'director', label: 'Director' },
   { id: 'auto', label: 'Auto' },
   { id: 'subject', label: 'Subject' },
   { id: 'disabled', label: 'Off' },
@@ -19,7 +20,7 @@ export function ReframeTab({ mode, onChange }) {
     <div className="field" style={{ marginTop: 4 }}>
       <span className="field-label">Reframe</span>
       <Segmented full value={mode} onChange={onChange} options={REFRAME_OPTS} />
-      <div className="eo-d" style={{ marginTop: 6 }}>Auto face-track · Subject FrameShift crop · Off letterbox bands</div>
+      <div className="eo-d" style={{ marginTop: 6 }}>Director speaker cuts · Auto face-track · Subject FrameShift crop · Off letterbox</div>
     </div>
   );
 }
