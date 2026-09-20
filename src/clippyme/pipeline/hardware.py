@@ -16,17 +16,25 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 # Creating the model is not enough — libcublas only loads during actual encoding.
 CUDA_AVAILABLE = False
 GPU_VRAM_GB = 0
+WHISPER_COMPUTE_TYPE = "int8"
 if DEVICE == "cuda":
     try:
+        import ctranslate2 as _ct2
         from faster_whisper import WhisperModel as _WM
         import numpy as _np
-        _m = _WM("tiny", device="cuda", compute_type="float16")
+        _supported = _ct2.get_supported_compute_types("cuda")
+        _compute_type = next((kind for kind in ("float16", "int8_float32", "int8") if kind in _supported), None)
+        if _compute_type is None:
+            raise RuntimeError("no supported CUDA compute type for Faster-Whisper")
+        _m = _WM("tiny", device="cuda", compute_type=_compute_type)
         _dummy = _np.zeros(16000, dtype=_np.float32)
-        _m.transcribe(_dummy)
+        _segments, _ = _m.transcribe(_dummy)
+        list(_segments)  # inference is lazy; run it before marking CUDA usable
         del _m, _dummy
         CUDA_AVAILABLE = True
+        WHISPER_COMPUTE_TYPE = _compute_type
         GPU_VRAM_GB = round(torch.cuda.get_device_properties(0).total_memory / (1024**3), 1)
-        print(f"✅ CUDA runtime verified — GPU {torch.cuda.get_device_name(0)} ({GPU_VRAM_GB}GB VRAM)")
+        print(f"✅ CUDA runtime verified — GPU {torch.cuda.get_device_name(0)} ({GPU_VRAM_GB}GB VRAM), Whisper {_compute_type}")
     except Exception as e:
         CUDA_AVAILABLE = False
         print(f"⚠️  CUDA not usable for Whisper: {type(e).__name__} — using CPU")

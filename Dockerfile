@@ -140,10 +140,14 @@ ARG ENABLE_WHISPER_DIARIZE=0
 COPY requirements.lock requirements.txt requirements-runtime-tools.txt ./
 # BuildKit cache mount: pip's download cache lives in the mount (shared across
 # rebuilds) and is NOT baked into the image layer.
+# PyPI's torch 2.11 wheel uses CUDA 13, which excludes Pascal GPUs such as
+# the GTX 1050 Ti; the cu126 wheel retains sm_61 support on NVIDIA builds.
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --upgrade pip && \
     pip install -r requirements.lock -r requirements-runtime-tools.txt && \
     if [ "$GPU_RUNTIME" = "nvidia" ]; then \
+        pip install 'torch==2.11.0+cu126' 'torchvision==0.26.0+cu126' \
+            --index-url https://download.pytorch.org/whl/cu126 && \
         pip install nvidia-cublas-cu12 && \
         SITE=$(python -c "import site; print(site.getsitepackages()[0])") && \
         echo "$SITE/nvidia/cublas/lib" > /etc/ld.so.conf.d/nvidia-pip.conf && \

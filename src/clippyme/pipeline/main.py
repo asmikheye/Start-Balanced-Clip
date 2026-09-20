@@ -67,6 +67,7 @@ from clippyme.pipeline.hardware import (  # noqa: E402
     DEVICE,
     CUDA_AVAILABLE,
     GPU_VRAM_GB,
+    WHISPER_COMPUTE_TYPE,
     WHISPER_MODEL,
 )
 
@@ -313,7 +314,7 @@ def transcribe_video(video_path):
                 print(f"⚠️  ElevenLabs transcription failed ({exc}); falling back to Faster-Whisper.")
 
         device = "cuda" if CUDA_AVAILABLE else "cpu"
-        compute_type = "float16" if device == "cuda" else "int8"
+        compute_type = WHISPER_COMPUTE_TYPE
         print(f"🎙️  Transcribing with Faster-Whisper [{WHISPER_MODEL}] ({device.upper()} mode)...")
         model = _get_whisper_model(WHISPER_MODEL, device, compute_type)
         # Honor per-job language override (set by main.py --language → CLIPPYME_LANGUAGE).
