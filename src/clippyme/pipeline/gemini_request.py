@@ -8,17 +8,29 @@ the level-4 reformat prompt. ``main.get_viral_clips`` orchestrates the actual
 SDK calls around these helpers and re-exports the moved constants.
 """
 import json
+import math
+import re
 import time
 
 # Per-model pricing ($ per 1M tokens) — update when Google changes rates
 MODEL_PRICING = {
+    "gemini-3.6-flash": {"input": 0.75, "output": 3.75},
     "gemini-3.5-flash": {"input": 1.50, "output": 9.00},
+    "gemini-3.5-flash-lite": {"input": 0.30, "output": 2.50},
+    "gemini-3.1-flash-lite": {"input": 0.0, "output": 0.0},
     "gemini-3.1-pro-preview": {"input": 2.00, "output": 12.00},
-    "gemini-2.5-flash": {"input": 0.30, "output": 2.50},
-    "gemini-2.5-flash-lite": {"input": 0.10, "output": 0.40},
     "gemini-2.5-pro": {"input": 1.25, "output": 10.00},
-    "gemini-2.0-flash": {"input": 0.10, "output": 0.40},
 }
+
+# The current free-tier GenerateContent quota reported by Google for this
+# account is 250k input tokens/model/minute. Keep each request comfortably
+# below that. The prompt itself is compacted to segment-level timestamps, so
+# ordinary interviews should still stay in one request whenever they fit.
+# Paid accounts can raise this with GEMINI_CHUNK_MAX_TOKENS.
+DEFAULT_GEMINI_CHUNK_MAX_TOKENS = 220_000
+DEFAULT_GEMINI_CHUNK_OVERLAP_SECONDS = 60.0
+
+_API_KEY_RE = re.compile(r"AIza[0-9A-Za-z_\-]{20,}")
 
 GEMINI_PROMPT_TEMPLATE = """
 You are a senior short-form video editor specialized in TikTok, IG Reels and YouTube Shorts virality. Read the ENTIRE transcript + word-level timestamps and select the 3–15 MOST VIRAL 15–60s moments.
@@ -84,10 +96,10 @@ normally on the words alone.
 - no cold-open ambiguity ("...and then she said" with no setup)
 - 0 ≤ start < end ≤ VIDEO_DURATION_SECONDS
 - ANCHOR TO REAL TIMESTAMPS: `start` MUST equal the `s` (start) of the FIRST
-  word of the opening sentence in the WORDS section, and `end` MUST equal the
-  `e` (end) of the LAST word of the closing sentence. Do NOT invent times between
-  words and do NOT round to whole seconds — copy the exact `s`/`e` of those two
-  words. This is how you avoid cutting mid-sentence or mid-word.
+  transcript SEGMENT included in the clip, and `end` MUST equal the `e` (end) of
+  the LAST transcript SEGMENT included in the clip. Copy those exact values.
+  The pipeline will snap the chosen boundaries to exact word/sentence/silence
+  edges after Gemini, so do not invent timestamps between segment boundaries.
 - start and end are FLOAT SECONDS with up to 3 decimals (e.g. 12.340, 1517.724).
   NEVER emit "MM.SS.mmm" (e.g. 25.17.724), "MM:SS", "HH:MM:SS", or any two-dot / colon
   time format. A value of 1517.724 is correct; "25.17.724" is a BUG.
@@ -225,11 +237,9 @@ BAD (would score ~30 — DO NOT emit anything like this):
 VIDEO_DURATION_SECONDS: {video_duration}
 {creator_block}
 
-TRANSCRIPT_TEXT (raw):
-{transcript_text}
-
-WORDS (TOON tabular: header `words[N]{{w,s,e}}:`, then one row `w,s,e` per word, s/e seconds):
-{words_toon}
+TRANSCRIPT SEGMENTS (TOON tabular: header `segments[N]{{s,e,sp,t}}:`, then one row
+`s,e,sp,t`; `sp` is the optional speaker id and `t` is the complete segment text):
+{segments_toon}
 
 {user_instructions_block}
 
@@ -322,6 +332,31 @@ def encode_words_toon(words):
     return "\n".join(lines)
 
 
+def encode_segments_toon(segments):
+    """Compact transcript for Gemini: one row per ASR segment, not per word.
+
+    This removes the old duplication where the full transcript text AND every
+    word timestamp were both sent to Gemini. Segment timestamps are enough for
+    selection because the downstream cut pipeline snaps boundaries back to
+    exact words/sentences/silence troughs before rendering.
+    """
+    lines = [f"segments[{len(segments)}]{{s,e,sp,t}}:"]
+    for segment in segments:
+        try:
+            s = float(segment.get("start", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            s = 0.0
+        try:
+            e = float(segment.get("end", s) or s)
+        except (TypeError, ValueError):
+            e = s
+        sp = segment.get("speaker", "")
+        sp_text = "" if sp is None else str(sp)
+        text = _toon_quote_word(str(segment.get("text") or "").strip())
+        lines.append(f"  {s},{e},{sp_text},{text}")
+    return "\n".join(lines)
+
+
 def build_viral_prompt(transcript_result, video_duration, instructions=None, creator=None):
     """Return ``(prompt, words)`` for the primary Gemini call.
 
@@ -363,12 +398,178 @@ def build_viral_prompt(transcript_result, video_duration, instructions=None, cre
 
     prompt = GEMINI_PROMPT_TEMPLATE.format(
         video_duration=video_duration,
-        transcript_text=json.dumps(transcript_result.get('text', '')),
-        words_toon=encode_words_toon(words),
+        segments_toon=encode_segments_toon(list((transcript_result or {}).get("segments") or [])),
         user_instructions_block=user_instructions_block,
         creator_block=creator_block,
     )
     return prompt, words
+
+
+def estimate_prompt_tokens(prompt: str) -> int:
+    """Conservative local token estimate used only when count_tokens fails.
+
+    Gemini tokenization differs by language and punctuation. The prompt is
+    especially timestamp-heavy, so using roughly one token per three UTF-8
+    bytes intentionally errs on the safe side rather than risking an oversized
+    generation request.
+    """
+    raw_bytes = len((prompt or "").encode("utf-8"))
+    return max(1, math.ceil(raw_bytes / 3.0))
+
+
+def count_prompt_tokens(client, model_name: str, prompt: str) -> int:
+    """Return Gemini's token count, falling back to a conservative estimate."""
+    try:
+        result = client.models.count_tokens(model=model_name, contents=prompt)
+        total = int(getattr(result, "total_tokens", 0) or 0)
+        if total > 0:
+            return total
+    except Exception:
+        # Counting must never make a job fail. The generation call below will
+        # still report the authoritative API error if the estimate is wrong.
+        pass
+    return estimate_prompt_tokens(prompt)
+
+
+def _slice_transcript(segments: list[dict], start: int, end: int) -> dict:
+    selected = segments[start:end]
+    return {
+        "text": " ".join(str(seg.get("text") or "").strip() for seg in selected).strip(),
+        "segments": selected,
+    }
+
+
+def _segment_start(segment: dict) -> float:
+    try:
+        return float(segment.get("start", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _segment_end(segment: dict) -> float:
+    try:
+        return float(segment.get("end", _segment_start(segment)) or 0.0)
+    except (TypeError, ValueError):
+        return _segment_start(segment)
+
+
+def build_viral_prompt_chunks(
+    transcript_result: dict,
+    video_duration: float,
+    instructions=None,
+    creator=None,
+    *,
+    max_tokens: int = DEFAULT_GEMINI_CHUNK_MAX_TOKENS,
+    overlap_seconds: float = DEFAULT_GEMINI_CHUNK_OVERLAP_SECONDS,
+    token_counter=None,
+) -> tuple[list[dict], int]:
+    """Build the fewest practical, maximum-size Gemini prompt chunks.
+
+    The complete transcript is always tried first. If it fits, there is exactly
+    ONE Gemini request. If it does not, we greedily binary-search the farthest
+    transcript segment that still fits under ``max_tokens``. That makes every
+    chunk as large as possible instead of imposing arbitrary 10/20/30-minute
+    boundaries. The next chunk overlaps backwards by up to ``overlap_seconds``
+    so a viral moment crossing a boundary is not lost. All timestamps remain
+    GLOBAL, so downstream rendering needs no offset conversion.
+
+    Returns ``(chunks, whole_prompt_tokens)``. Each chunk contains ``prompt``,
+    ``words``, ``token_count``, ``start`` and ``end``.
+    """
+    counter = token_counter or estimate_prompt_tokens
+    max_tokens = max(50_000, int(max_tokens or DEFAULT_GEMINI_CHUNK_MAX_TOKENS))
+    overlap_seconds = max(0.0, float(overlap_seconds or 0.0))
+
+    full_prompt, full_words = build_viral_prompt(
+        transcript_result, video_duration, instructions, creator=creator
+    )
+    whole_tokens = int(counter(full_prompt))
+    segments = list((transcript_result or {}).get("segments") or [])
+
+    if whole_tokens <= max_tokens or not segments:
+        start = _segment_start(segments[0]) if segments else 0.0
+        end = _segment_end(segments[-1]) if segments else float(video_duration or 0.0)
+        return [{
+            "prompt": full_prompt,
+            "words": full_words,
+            "token_count": whole_tokens,
+            "start": start,
+            "end": end,
+        }], whole_tokens
+
+    fitted: list[dict] = []
+    base_start = 0
+    count_cache: dict[tuple[int, int], tuple[str, list[dict], int]] = {}
+
+    def _build(from_index: int, end_index: int):
+        key = (from_index, end_index)
+        cached = count_cache.get(key)
+        if cached is not None:
+            return cached
+        chunk_transcript = _slice_transcript(segments, from_index, end_index)
+        chunk_prompt, chunk_words = build_viral_prompt(
+            chunk_transcript, video_duration, instructions, creator=creator
+        )
+        built = (chunk_prompt, chunk_words, int(counter(chunk_prompt)))
+        count_cache[key] = built
+        return built
+
+    while base_start < len(segments):
+        overlap_start = base_start
+        if base_start > 0 and overlap_seconds > 0:
+            boundary = _segment_start(segments[base_start]) - overlap_seconds
+            while overlap_start > 0 and _segment_end(segments[overlap_start - 1]) >= boundary:
+                overlap_start -= 1
+
+        # If even one base segment plus the requested overlap does not fit,
+        # discard overlap for this boundary before failing/splitting anything.
+        first_end = base_start + 1
+        _, _, first_count = _build(overlap_start, first_end)
+        if first_count > max_tokens and overlap_start < base_start:
+            overlap_start = base_start
+            _, _, first_count = _build(overlap_start, first_end)
+        if first_count > max_tokens:
+            raise ValueError(
+                "A single transcript segment exceeds GEMINI_CHUNK_MAX_TOKENS; "
+                "cannot split it safely."
+            )
+
+        # Find the farthest end_index that fits. Binary search keeps the number
+        # of count_tokens calls small even for multi-thousand-segment interviews.
+        low = first_end
+        high = len(segments)
+        best_end = first_end
+        best_built = _build(overlap_start, first_end)
+
+        while low <= high:
+            mid = (low + high) // 2
+            prompt, words, token_count = _build(overlap_start, mid)
+            if token_count <= max_tokens:
+                best_end = mid
+                best_built = (prompt, words, token_count)
+                low = mid + 1
+            else:
+                high = mid - 1
+
+        prompt, words, token_count = best_built
+        fitted.append({
+            "prompt": prompt,
+            "words": words,
+            "token_count": token_count,
+            "start": _segment_start(segments[overlap_start]),
+            "end": _segment_end(segments[best_end - 1]),
+        })
+        base_start = best_end
+
+    return fitted, whole_tokens
+
+def _format_gemini_error(exc, max_chars: int = 1600) -> str:
+    """Readable, key-redacted SDK error for job logs."""
+    text = _API_KEY_RE.sub("***REDACTED***", str(exc or "unknown error"))
+    text = " ".join(text.split())
+    if len(text) > max_chars:
+        text = text[: max_chars - 1] + "…"
+    return text
 
 
 def is_rate_limit_error(exc) -> bool:
@@ -395,8 +596,7 @@ def build_model_chain(primary_model: str, fallback_models: str | None = None) ->
         # NB: pro models (gemini-*-pro-*) have limit:0 on the free API tier —
         # they 429 instantly, so they are intentionally NOT in the default
         # chain. Add one here (or via GEMINI_FALLBACK_MODELS) only on a paid plan.
-        "gemini-3-flash-preview,gemini-2.5-flash,"
-        "gemini-3.1-flash-lite,gemini-2.5-flash-lite"
+        "gemini-3.6-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite"
     )
     models = [primary_model, *(part.strip() for part in raw.split(","))]
     return list(dict.fromkeys(model for model in models if model))
@@ -415,6 +615,23 @@ def _is_unavailable_model_error(exc) -> bool:
         ("404" in message or "not_found" in message)
         and ("model" in message or "not available" in message)
     )
+
+
+def _retry_after_seconds(exc, default: float = 10.0) -> float:
+    """Extract Google's RetryInfo / 'Please retry in Xs' hint when present."""
+    message = str(exc or "")
+    patterns = (
+        r"retry in\s+([0-9]+(?:\.[0-9]+)?)s",
+        r"retryDelay['\"]?\s*[:=]\s*['\"]([0-9]+(?:\.[0-9]+)?)s",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, message, flags=re.IGNORECASE)
+        if match:
+            try:
+                return max(1.0, min(float(match.group(1)) + 1.0, 120.0))
+            except ValueError:
+                pass
+    return max(1.0, min(float(default), 120.0))
 
 
 def generate_with_model_fallback(
@@ -445,26 +662,44 @@ def generate_with_model_fallback(
                 return response, model_name
             except Exception as exc:
                 last_error = exc
+                detail = _format_gemini_error(exc)
                 if _is_unavailable_model_error(exc):
-                    log_fn(f"⏭️  Gemini model {model_name} unavailable; skipping it")
+                    log_fn(f"⏭️  Gemini {model_name} unavailable: {detail}")
                     break
                 if not _is_retryable_model_error(exc):
+                    log_fn(f"❌ Gemini {model_name} permanent error: {detail}")
                     raise
                 rate_limited = is_rate_limit_error(exc)
                 if rate_limited:
-                    log_fn(f"🔀 Gemini {model_name} quota exhausted; switching model")
+                    # A free-tier TPM 429 is often temporary after a successful
+                    # previous chunk. Respect Google's RetryInfo and retry the
+                    # SAME model before falling through to another model. This
+                    # only works because chunk preparation keeps each individual
+                    # request below the account's per-minute input-token limit.
+                    log_fn(f"⚠️  Gemini {model_name} rate/quota error: {detail}")
+                    if attempt < attempts - 1:
+                        wait = _retry_after_seconds(
+                            exc, default=backoff_seconds(True, attempt)
+                        )
+                        log_fn(
+                            f"⏳ Retrying {model_name} in {wait:.0f}s "
+                            f"(attempt {attempt + 2}/{attempts})..."
+                        )
+                        sleep_fn(wait)
+                        continue
                     break
                 if attempt < attempts - 1:
-                    wait = backoff_seconds(rate_limited, attempt)
-                    reason = "rate-limited" if rate_limited else "transient error"
+                    wait = backoff_seconds(False, attempt)
                     log_fn(
-                        f"⚠️  Gemini {model_name} {reason} "
-                        f"(attempt {attempt + 1}/{attempts}): {exc}. "
+                        f"⚠️  Gemini {model_name} transient error "
+                        f"(attempt {attempt + 1}/{attempts}): {detail}. "
                         f"Retrying in {wait}s..."
                     )
                     sleep_fn(wait)
+                else:
+                    log_fn(f"⚠️  Gemini {model_name} transient error: {detail}")
         if model_index < len(models) - 1:
-            log_fn(f"🔀 Gemini {model_name} unavailable — trying {models[model_index + 1]}")
+            log_fn(f"🔀 Trying fallback model {models[model_index + 1]}")
     if last_error is not None:
         raise last_error
     raise RuntimeError("No Gemini models configured")

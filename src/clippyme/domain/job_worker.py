@@ -29,10 +29,29 @@ def enqueue_output(out, job_id: str, jobs: Dict[str, Dict]) -> None:
             # subprocess keeps working, with no user-facing explanation.
             decoded_line = line.decode("utf-8", errors="replace").strip()
             if decoded_line:
-                logger.info("📝 [Job Output] %s", decoded_line)
+                is_download_progress = decoded_line.startswith("⬇️ Download")
+                if is_download_progress:
+                    # This row can update every second; keep Docker/server logs
+                    # quiet while still exposing the live value to the dashboard.
+                    logger.debug("📝 [Job Output] %s", decoded_line)
+                else:
+                    logger.info("📝 [Job Output] %s", decoded_line)
+
                 if job_id in jobs:
                     logs = jobs[job_id]["logs"]
-                    logs.append(decoded_line)
+                    if is_download_progress:
+                        # Keep exactly ONE live download row. If another message
+                        # appeared after it (for example a transient warning),
+                        # move the refreshed progress row back to the bottom so
+                        # the UI always shows the current value.
+                        for index in range(len(logs) - 1, -1, -1):
+                            if str(logs[index]).startswith("⬇️ Download"):
+                                del logs[index]
+                                break
+                        logs.append(decoded_line)
+                    else:
+                        logs.append(decoded_line)
+
                     if len(logs) > MAX_LOG_LINES:
                         del logs[: len(logs) - MAX_LOG_LINES]
     except Exception as e:

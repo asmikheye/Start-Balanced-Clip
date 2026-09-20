@@ -201,6 +201,95 @@ def classify_download_error(msg: str) -> str:
     return "fatal"
 
 
+def _human_speed(bytes_per_second):
+    """Format a yt-dlp byte/s value for the compact live progress row."""
+    try:
+        value = float(bytes_per_second or 0)
+    except (TypeError, ValueError):
+        return None
+    if value <= 0:
+        return None
+    units = ("B/s", "KiB/s", "MiB/s", "GiB/s")
+    unit = units[0]
+    for unit in units:
+        if value < 1024 or unit == units[-1]:
+            break
+        value /= 1024
+    return f"{value:.1f} {unit}"
+
+
+def _format_eta(seconds):
+    """Format yt-dlp ETA seconds as MM:SS / H:MM:SS."""
+    try:
+        value = max(0, int(seconds))
+    except (TypeError, ValueError):
+        return None
+    hours, remainder = divmod(value, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours:
+        return f"{hours}:{minutes:02d}:{secs:02d}"
+    return f"{minutes:02d}:{secs:02d}"
+
+
+def _make_download_progress_hook():
+    """Return a throttled yt-dlp hook that emits one compact progress row.
+
+    yt-dlp's normal progress bar is carriage-return based, which is buffered by
+    the worker pipe until the download finishes.  Emitting newline-terminated,
+    flushed rows here lets the dashboard receive progress while bytes are still
+    arriving.
+    """
+    last_emit = 0.0
+    last_text = None
+
+    def hook(status):
+        nonlocal last_emit, last_text
+        state = status.get("status")
+        if state not in {"downloading", "finished"}:
+            return
+
+        now = time.monotonic()
+        if state == "downloading" and now - last_emit < 1.0:
+            return
+
+        downloaded = status.get("downloaded_bytes") or 0
+        total = status.get("total_bytes") or status.get("total_bytes_estimate") or 0
+        pct = None
+        try:
+            if total:
+                pct = max(0.0, min(100.0, float(downloaded) * 100.0 / float(total)))
+        except (TypeError, ValueError, ZeroDivisionError):
+            pct = None
+
+        if pct is None:
+            frag_index = status.get("fragment_index")
+            frag_count = status.get("fragment_count")
+            try:
+                if frag_index is not None and frag_count:
+                    pct = max(0.0, min(100.0, float(frag_index) * 100.0 / float(frag_count)))
+            except (TypeError, ValueError, ZeroDivisionError):
+                pct = None
+
+        if state == "finished":
+            pct = 100.0
+
+        parts = [f"⬇️ Download {pct:.1f}%" if pct is not None else "⬇️ Download…"]
+        speed = _human_speed(status.get("speed"))
+        eta = _format_eta(status.get("eta"))
+        if speed:
+            parts.append(speed)
+        if eta and state == "downloading":
+            parts.append(f"ETA {eta}")
+
+        text = " · ".join(parts)
+        if text != last_text:
+            print(text, flush=True)
+            last_text = text
+        last_emit = now
+
+    return hook
+
+
 SOURCE_INFO_FILENAME = "source_info.json"
 
 
@@ -254,10 +343,15 @@ def download_youtube_video(url, output_dir=".", cookies_file_path=None):
     # Verbose mode can leak paths, request URLs and headers into job logs, so it
     # stays opt-in. TLS verification stays on unless explicitly overridden.
     ydl_verbose = os.environ.get('YTDLP_VERBOSE') == '1'
+    download_progress_hook = _make_download_progress_hook()
     common_ydl_opts = {
         'quiet': not ydl_verbose,
         'verbose': ydl_verbose,
         'no_warnings': False,
+        # Suppress yt-dlp's carriage-return progress bar and emit our own
+        # newline-terminated live row through progress_hooks instead.
+        'noprogress': True,
+        'progress_hooks': [download_progress_hook],
         'cookiefile': cookies_path if cookies_path else None,
         'socket_timeout': 30,
         'retries': 10,

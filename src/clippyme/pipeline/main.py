@@ -76,11 +76,16 @@ from clippyme.pipeline.hardware import (  # noqa: E402
 from clippyme.pipeline.gemini_request import (  # noqa: E402,F401
     GEMINI_PROMPT_TEMPLATE,
     MODEL_PRICING,
+    DEFAULT_GEMINI_CHUNK_MAX_TOKENS,
+    DEFAULT_GEMINI_CHUNK_OVERLAP_SECONDS,
     backoff_seconds,
     build_model_chain,
     build_reformat_prompt,
     build_viral_prompt,
+    build_viral_prompt_chunks,
     compute_gemini_cost,
+    count_prompt_tokens,
+    extract_prompt_words,
     generate_with_model_fallback,
     is_rate_limit_error,
 )
@@ -143,7 +148,6 @@ from clippyme.pipeline.download import (  # noqa: E402
 
 # Audio normalize + Ken Burns zoom live in a cv2-free, host-testable module.
 from clippyme.pipeline.postprocess import normalize_audio, apply_subtle_zoom  # noqa: E402
-from clippyme.pipeline import texttiling_ops  # noqa: E402
 
 
 
@@ -405,6 +409,7 @@ def transcribe_video(video_path):
 
 def get_viral_clips(transcript_result, video_duration, instructions=None):
     print("🤖  Analyzing with Gemini...")
+    print("🧠 Gemini pipeline v2: compact segment prompt, TextTiling disabled")
     get_viral_clips._last_gemini_exhausted = False
 
     api_key = os.getenv("GEMINI_API_KEY")
@@ -413,91 +418,123 @@ def get_viral_clips(transcript_result, video_duration, instructions=None):
         return None
 
     client = genai.Client(api_key=api_key)
-    
-    # Use selected model from env, or default to gemini-3.5-flash
-    model_name = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 
+    # Use selected model from env, or default to gemini-3.5-flash.
+    model_name = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
     model_chain = build_model_chain(model_name, os.getenv("GEMINI_FALLBACK_MODELS"))
     print(f"🤖  Initializing Gemini with model chain: {' → '.join(model_chain)}")
 
     if any(old in model_name for old in ("1.0", "1.5", "2.0")):
-        print(f"⚠️  WARNING: {model_name} is deprecated. Please switch to gemini-3.5-flash or later via the dashboard.")
+        print(
+            f"⚠️  WARNING: {model_name} is deprecated. "
+            "Please switch to gemini-3.5-flash or later via the dashboard."
+        )
 
-    # Prompt building (word flattening, untrusted-instructions fencing,
-    # template fill) is pure — it lives in gemini_request, host-tested.
-    # The live monitor knows whose stream this is; manual jobs don't (unset).
-    prompt, words = build_viral_prompt(
-        transcript_result, video_duration, instructions,
-        creator=os.getenv("CLIPPYME_CREATOR_NAME"),
-    )
+    # Long interviews stay ONE request whenever possible. Only prompts that are
+    # too large are split, and then into the minimum practical number of large,
+    # contiguous chunks. Timestamps stay global, so rendering needs no offset
+    # conversion after the chunks are merged.
+    try:
+        chunk_max_tokens = int(
+            os.getenv("GEMINI_CHUNK_MAX_TOKENS", str(DEFAULT_GEMINI_CHUNK_MAX_TOKENS))
+            or DEFAULT_GEMINI_CHUNK_MAX_TOKENS
+        )
+    except ValueError:
+        chunk_max_tokens = DEFAULT_GEMINI_CHUNK_MAX_TOKENS
+    chunk_max_tokens = max(50_000, min(chunk_max_tokens, 950_000))
 
-    if not words:
+    try:
+        chunk_overlap = float(
+            os.getenv(
+                "GEMINI_CHUNK_OVERLAP_SECONDS",
+                str(DEFAULT_GEMINI_CHUNK_OVERLAP_SECONDS),
+            )
+            or DEFAULT_GEMINI_CHUNK_OVERLAP_SECONDS
+        )
+    except ValueError:
+        chunk_overlap = DEFAULT_GEMINI_CHUNK_OVERLAP_SECONDS
+    chunk_overlap = max(0.0, min(chunk_overlap, 300.0))
+
+    creator = os.getenv("CLIPPYME_CREATOR_NAME")
+    full_words = extract_prompt_words(transcript_result)
+    if not full_words:
         print("⏭️  Empty transcript (no words) — skipping Gemini, no clips.")
         return None
 
-    max_attempts = int(os.getenv("GEMINI_MAX_RETRIES", "3") or "3")
     try:
-        response, model_name = generate_with_model_fallback(
-            client, prompt, model_chain, max_attempts=max_attempts)
-    except Exception as e:
-        if is_rate_limit_error(e):
-            get_viral_clips._last_gemini_exhausted = True
-            print("🚫 All Gemini models rate-limited — no clips this run.")
-        print(f"❌ Gemini API failed across model chain: {e}")
+        chunks, whole_prompt_tokens = build_viral_prompt_chunks(
+            transcript_result,
+            video_duration,
+            instructions,
+            creator=creator,
+            max_tokens=chunk_max_tokens,
+            overlap_seconds=chunk_overlap,
+            token_counter=lambda prompt: count_prompt_tokens(client, model_name, prompt),
+        )
+    except Exception as exc:
+        print(f"❌ Could not prepare Gemini input chunks: {exc}")
         return None
 
-    # --- Cost Calculation (pure math in gemini_request) ---
-    cost_analysis = None
-    try:
-        usage = response.usage_metadata
-        if usage:
-            cost_analysis = compute_gemini_cost(
-                usage.prompt_token_count, usage.candidates_token_count, model_name)
-            print(f"💰 Token Usage ({model_name}):")
-            print(f"   - Input Tokens: {cost_analysis['input_tokens']} (${cost_analysis['input_cost']:.6f})")
-            print(f"   - Output Tokens: {cost_analysis['output_tokens']} (${cost_analysis['output_cost']:.6f})")
-            print(f"   - Total Estimated Cost: ${cost_analysis['total_cost']:.6f}")
-    except Exception as e:
-        print(f"⚠️ Could not calculate cost: {e}")
+    if not chunks:
+        print("❌ Gemini input preparation produced no chunks.")
+        return None
 
-    # Parse response JSON via the 5-level chain in gemini_parser.
-    # See CLAUDE.md section "Gemini viral detection — parsing chain".
-    try:
-        from clippyme.pipeline.gemini_parser import (
-            parse_gemini_response, validate_and_dedupe, backfill_hook_text, drop_wordless_clips,
-            cap_clips_by_score,
+    if len(chunks) == 1:
+        print(
+            f"📏 Gemini input: ~{whole_prompt_tokens:,} tokens — "
+            "fits in one request."
         )
-        from pydantic import ValidationError
+    else:
+        print(
+            f"📏 Gemini input: ~{whole_prompt_tokens:,} tokens — splitting into "
+            f"{len(chunks)} maximum-size chunks (limit {chunk_max_tokens:,}, "
+            f"overlap {chunk_overlap:.0f}s)."
+        )
+        for index, chunk in enumerate(chunks, 1):
+            print(
+                f"   🧩 chunk {index}/{len(chunks)}: "
+                f"{chunk['start']:.1f}s–{chunk['end']:.1f}s, "
+                f"~{chunk['token_count']:,} tokens"
+            )
 
+    from clippyme.pipeline.gemini_parser import (
+        parse_gemini_response,
+        validate_and_dedupe,
+        backfill_hook_text,
+        drop_wordless_clips,
+        cap_clips_by_score,
+    )
+    from pydantic import ValidationError
+
+    max_attempts = int(os.getenv("GEMINI_MAX_RETRIES", "3") or "3")
+    all_clips: list[dict] = []
+    cost_totals = {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "input_cost": 0.0,
+        "output_cost": 0.0,
+        "total_cost": 0.0,
+    }
+    models_used: list[str] = []
+
+    def _parse_response(response, used_model: str, chunk_words: list[dict], label: str):
+        """Parse/validate one chunk response without allowing heuristic fallback."""
         text = response.text or ""
 
         def _retry_gemini(err_msg: str) -> str:
-            """Level-4 retry: reformat ONLY, using the cheap flash model.
-
-            The reasoning is already done in the primary call — if it
-            produced text we just failed to parse, the bottleneck is
-            formatting, not understanding. Decouple the two concerns
-            (Gopalan, Google Cloud Community, Oct 2025) and hand the
-            retry to gemini-2.5-flash which is ~10x cheaper than pro
-            and plenty capable of reformatting JSON.
-
-            Crucially, we do NOT resend the full transcript + prompt:
-            we hand the model ONLY the previous broken output and ask
-            it to reformat. That avoids paying the input-token cost of
-            the transcript twice and keeps the retry latency-bounded.
-            """
-            retry_model = os.getenv("GEMINI_RETRY_MODEL", "gemini-2.5-flash") or "gemini-2.5-flash"
+            retry_model = os.getenv("GEMINI_RETRY_MODEL", "gemini-3.5-flash-lite") or "gemini-3.5-flash-lite"
             retry_prompt = build_reformat_prompt(err_msg, text)
             try:
                 retry_chain = build_model_chain(
-                    retry_model, os.getenv("GEMINI_FALLBACK_MODELS"))
-                retry_resp, retry_model = generate_with_model_fallback(
+                    retry_model, os.getenv("GEMINI_FALLBACK_MODELS")
+                )
+                retry_resp, retry_used_model = generate_with_model_fallback(
                     client, retry_prompt, retry_chain, max_attempts=1,
                 )
-                print(f"🔁 Retry via {retry_model} (cheap reformatter)")
+                print(f"🔁 Retry via {retry_used_model} (cheap reformatter)")
                 return retry_resp.text or ""
-            except Exception as e:
-                print(f"⚠️  Gemini retry failed: {e}")
+            except Exception as exc:
+                print(f"⚠️  Gemini retry failed: {exc}")
                 return ""
 
         parse_result = parse_gemini_response(
@@ -505,110 +542,149 @@ def get_viral_clips(transcript_result, video_duration, instructions=None):
             retry_fn=_retry_gemini,
             request_id=os.urandom(4).hex(),
         )
-
-        # Structured log line for observability.
         print(
-            f"📊 gemini_parse path={parse_result.parse_path} "
+            f"📊 gemini_parse{label} path={parse_result.parse_path} "
             f"duration_ms={parse_result.duration_ms:.1f} "
             f"error={parse_result.error or 'none'}"
         )
-
         if parse_result.data is None:
-            print(f"❌ Failed to parse Gemini response: {parse_result.error}")
+            print(f"❌ Failed to parse Gemini response{label}: {parse_result.error}")
             return None
 
         try:
-            clips = validate_and_dedupe(
+            parsed_clips = validate_and_dedupe(
                 parse_result.data,
                 video_duration=video_duration,
                 overlap_threshold=0.7,
                 drop_generic=True,
             )
-        except ValidationError as e:
-            print(f"❌ Pydantic validation failed: {e}")
+        except ValidationError as exc:
+            print(f"❌ Pydantic validation failed{label}: {exc}")
             return None
 
-        if not clips:
-            print("❌ No valid clips after Pydantic validation + dedupe")
+        parsed_clips = drop_wordless_clips(parsed_clips, chunk_words)
+        backfill_hook_text(parsed_clips, chunk_words)
+        return parsed_clips
+
+    for index, chunk in enumerate(chunks, 1):
+        label = f" chunk {index}/{len(chunks)}" if len(chunks) > 1 else ""
+        if len(chunks) > 1:
+            print(f"🤖 Analyzing Gemini{label}...")
+
+        try:
+            response, used_model = generate_with_model_fallback(
+                client,
+                chunk["prompt"],
+                model_chain,
+                max_attempts=max_attempts,
+            )
+        except Exception as exc:
+            if is_rate_limit_error(exc):
+                get_viral_clips._last_gemini_exhausted = True
+            print(f"❌ Gemini API failed{label} across model chain: {exc}")
+            print("⛔ Gemini analysis incomplete — no clips will be rendered.")
             return None
 
-        clips = drop_wordless_clips(clips, words)
-        if not clips:
-            print("❌ No clips with transcript words in range (hallucination/empty transcript guard)")
-            return None
+        if used_model not in models_used:
+            models_used.append(used_model)
 
-        # Bound a publish-limited monitor's output: an optional viral_score
-        # floor (auto selection — the count follows the material) plus a
-        # top-N ceiling. Both unset/0 (manual jobs) → keep them all.
-        def _env_int(name: str) -> int:
-            try:
-                return int(os.getenv(name) or 0)
-            except ValueError:
-                return 0
-
-        _n, _floor = _env_int("CLIPPYME_MAX_CLIPS"), _env_int("CLIPPYME_MIN_VIRAL_SCORE")
-        if _n > 0 or _floor > 0:
-            _before = len(clips)
-            clips = cap_clips_by_score(clips, _n, _floor)
-            if len(clips) != _before:
-                print(
-                    f"✂️  Clip selection: {_before} → {len(clips)} "
-                    f"(max={_n or 'none'}, min_score={_floor or 'none'})."
+        try:
+            usage = response.usage_metadata
+            if usage:
+                chunk_cost = compute_gemini_cost(
+                    usage.prompt_token_count,
+                    usage.candidates_token_count,
+                    used_model,
                 )
-        if not clips:
-            print("❌ No clips cleared the viral_score floor")
+                for key in cost_totals:
+                    cost_totals[key] += chunk_cost[key]
+                if len(chunks) == 1:
+                    print(f"💰 Token Usage ({used_model}):")
+                else:
+                    print(f"💰 Token Usage ({used_model}, chunk {index}/{len(chunks)}):")
+                print(
+                    f"   - Input Tokens: {chunk_cost['input_tokens']} "
+                    f"(${chunk_cost['input_cost']:.6f})"
+                )
+                print(
+                    f"   - Output Tokens: {chunk_cost['output_tokens']} "
+                    f"(${chunk_cost['output_cost']:.6f})"
+                )
+                print(
+                    f"   - Total Estimated Cost: ${chunk_cost['total_cost']:.6f}"
+                )
+        except Exception as exc:
+            print(f"⚠️ Could not calculate Gemini cost{label}: {exc}")
+
+        chunk_clips = _parse_response(response, used_model, chunk["words"], label)
+        if chunk_clips is None:
+            print("⛔ Gemini analysis incomplete — no clips will be rendered.")
             return None
 
-        # Ensure every clip has a viral_hook_text. Logic lives in
-        # gemini_parser.backfill_hook_text so both the main pipeline AND
-        # the metadata-reload path in job_results.py use the exact same
-        # strategy (no drift between live runs and restored jobs).
-        backfill_hook_text(clips, words)
+        all_clips.extend(chunk_clips)
+        if len(chunks) > 1:
+            print(f"   ✅ Gemini{label}: {len(chunk_clips)} candidate clip(s)")
 
-        print(f"✅ {len(clips)} clips passed validation + dedupe")
-        result_json = {"shorts": clips}
-        if cost_analysis:
-            result_json["cost_analysis"] = cost_analysis
-        return result_json
-    except Exception as e:
-        print(f"❌ Unexpected error in Gemini response processing: {e}")
-        logging.getLogger("clippyme").exception("Unexpected error in Gemini response processing")
+    if not all_clips:
+        print("❌ Gemini returned no valid clips.")
         return None
 
-
-def build_texttiling_fallback(transcript_result, video_title):
-    """No-AI fallback: topic-segment the transcript into clips via lexical TextTiling.
-
-    Returns a ``{"shorts": [...]}`` dict shaped like ``get_viral_clips`` output so
-    the clips flow through the identical downstream clip loop, or ``None`` when
-    the transcript can't be usefully segmented (caller then renders whole-video).
-    Clips carry ``viral_score=0`` and an explicit ``viral_reason`` so the UI shows
-    they are heuristic, not AI-judged. See docs/clipsai-analysis.md.
-    """
+    # One final GLOBAL dedupe is essential because the 60s overlap can make two
+    # neighbouring chunks choose the same viral moment. It also ranks by
+    # viral_score, so chunked interviews end with one coherent top list.
     try:
-        segments = (transcript_result or {}).get('segments') or []
-        topic_clips = texttiling_ops.find_topic_clips(segments)
-        if not topic_clips:
-            return None
-        print(f"🧩 Gemini unavailable — lexical TextTiling found {len(topic_clips)} topic clips.")
-        shorts = []
-        for i, tc in enumerate(topic_clips):
-            snippet = (tc.get('text') or '').strip()
-            shorts.append({
-                'start': float(tc['start']),
-                'end': float(tc['end']),
-                'video_title_for_youtube_short': f"{video_title} — part {i + 1}",
-                'tiktok_caption': snippet[:150],
-                'viral_score': 0,
-                'viral_reason': "Topic-segmented fallback (no AI scoring — Gemini was unavailable).",
-                'hook': '',
-            })
-        return {"shorts": shorts}
-    except Exception as e:  # noqa: BLE001 — fallback must never break the pipeline
-        print(f"⚠️  TextTiling fallback failed ({e}); will render whole video instead.")
-        logging.getLogger("clippyme").exception("TextTiling fallback failed")
+        clips = validate_and_dedupe(
+            {"shorts": all_clips},
+            video_duration=video_duration,
+            overlap_threshold=0.7,
+            drop_generic=True,
+        )
+    except ValidationError as exc:
+        print(f"❌ Global Gemini candidate validation failed: {exc}")
         return None
 
+    clips = drop_wordless_clips(clips, full_words)
+
+    def _env_int(name: str) -> int:
+        try:
+            return int(os.getenv(name) or 0)
+        except ValueError:
+            return 0
+
+    configured_max = _env_int("CLIPPYME_MAX_CLIPS")
+    min_score = _env_int("CLIPPYME_MIN_VIRAL_SCORE")
+    # A single Gemini request already obeys the prompt's 3–15 contract. Multiple
+    # chunks can each return up to 15, so cap the merged result to 15 unless the
+    # user explicitly configured another ceiling.
+    effective_max = configured_max if configured_max > 0 else (15 if len(chunks) > 1 else 0)
+    before_selection = len(clips)
+    clips = cap_clips_by_score(clips, effective_max, min_score)
+    if not clips:
+        print("❌ No clips cleared the viral_score floor.")
+        return None
+
+    backfill_hook_text(clips, full_words)
+
+    if len(chunks) > 1:
+        print(
+            f"🔗 Gemini chunks merged: {len(all_clips)} candidates → "
+            f"{before_selection} after global dedupe → {len(clips)} selected."
+        )
+        print(
+            f"💰 Gemini total across {len(chunks)} request(s): "
+            f"{cost_totals['input_tokens']} input + {cost_totals['output_tokens']} output tokens, "
+            f"${cost_totals['total_cost']:.6f} estimated."
+        )
+
+    print(f"✅ {len(clips)} clips passed validation + dedupe")
+    result_json = {"shorts": clips}
+    if cost_totals["input_tokens"] or cost_totals["output_tokens"]:
+        result_json["cost_analysis"] = {
+            **cost_totals,
+            "model": models_used[0] if len(models_used) == 1 else " + ".join(models_used),
+            "requests": len(chunks),
+        }
+    return result_json
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="AutoCrop-Vertical with Viral Clip Detection.")
@@ -641,8 +717,7 @@ if __name__ == '__main__':
     parser.add_argument('--aspect', choices=['9:16', '1:1', '16:9'], default='9:16',
                         help="Output aspect ratio: 9:16 vertical (default), 1:1 square, or 16:9 horizontal.")
     parser.add_argument('--monitor', action='store_true',
-                        help='Live-monitor job: never use TextTiling/whole-video '
-                             'fallbacks; empty transcript or Gemini exhaustion → zero clips.')
+                        help='Live-monitor job: empty transcript or Gemini exhaustion → zero clips.')
     parser.add_argument('--model', type=str, default=None,
                         help="Override the Gemini model for viral detection on THIS job (e.g. "
                              "'gemini-2.5-pro', 'gemini-3.1-pro-preview'). When unset, the pipeline uses "
@@ -747,7 +822,7 @@ if __name__ == '__main__':
     script_start_time = time.time()
 
     from clippyme.pipeline.run_ops import (
-        build_cut_command, clip_output_basename, resolve_output_dir, should_use_fallback,
+        build_cut_command, clip_output_basename, resolve_output_dir,
     )
 
     # 1. Get Input Video
@@ -801,36 +876,21 @@ if __name__ == '__main__':
         # 4. Gemini Analysis
         clips_data = get_viral_clips(transcript, duration, instructions=args.instructions)
 
-        # Smarter no-AI fallback: when Gemini is unavailable (no key) or its
-        # output is unusable, segment the transcript into topic-coherent clips
-        # via dependency-light lexical TextTiling instead of dumping the entire
-        # source as one giant vertical clip. Topic clips flow through the exact
-        # same proven clip loop below (source slice → reframe → zoom/normalize/
-        # cover). If TextTiling can't find usable segments we fall through to the
-        # original whole-video render. (Ported from ClipsAI — see
-        # docs/clipsai-analysis.md.)
-        if not clips_data or 'shorts' not in clips_data:
-            if should_use_fallback(args.monitor):
-                clips_data = build_texttiling_fallback(transcript, video_title)
-
+        # HARD RULE: AI analysis failure must never silently turn into TextTiling
+        # clips or a whole-video render. Those heuristic clips looked like normal
+        # Gemini output in the UI and wasted CPU rendering material the user did
+        # not want. Preserve transcript metadata/checkpoints, then stop cleanly.
         if not clips_data or not clips_data.get('shorts'):
-            if not should_use_fallback(args.monitor):
-                # Monitor: no hallucinated/fallback clips — write empty metadata
-                # (+ exhaustion marker if Gemini ran out of models) and exit clean.
-                empty = {'shorts': [], 'transcript': transcript, 'aspect': args.aspect}
-                if getattr(get_viral_clips, '_last_gemini_exhausted', False):
-                    empty['gemini_exhausted'] = True
-                _meta = os.path.join(output_dir, f"{video_title}_metadata.json")
-                _tmp = _meta + '.tmp'
-                with open(_tmp, 'w') as f:
-                    json.dump(empty, f, indent=2)
-                os.replace(_tmp, _meta)
-                print("🚫 Monitor: no valid clips this segment — skipping.")
-            else:
-                print("❌ Failed to identify clips. Converting whole video as fallback.")
-                output_file = os.path.join(output_dir, f"{video_title}_vertical.mp4")
-                process_video_to_vertical(input_video, output_file, reframe_mode=args.reframe_mode,
-                                          aspect_ratio=aspect_ratio, letterbox_zoom=letterbox_zoom)
+            empty = {'shorts': [], 'transcript': transcript, 'aspect': args.aspect}
+            if getattr(get_viral_clips, '_last_gemini_exhausted', False):
+                empty['gemini_exhausted'] = True
+            _meta = os.path.join(output_dir, f"{video_title}_metadata.json")
+            _tmp = _meta + '.tmp'
+            with open(_tmp, 'w') as f:
+                json.dump(empty, f, indent=2)
+            os.replace(_tmp, _meta)
+            print("❌ Gemini did not produce valid clips.")
+            print("⛔ Rendering cancelled — TextTiling/whole-video fallback is disabled.")
         else:
             print(f"🔥 Found {len(clips_data['shorts'])} viral clips!")
             
