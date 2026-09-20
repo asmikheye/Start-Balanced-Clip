@@ -90,7 +90,9 @@ export function pipelineStepMeta(logs = [], opts = {}) {
   // Legacy jobs only carry the boolean `opts.reframe`; map it as a fallback.
   const rm = opts.reframeMode || (opts.reframe === false ? 'disabled' : 'auto');
   meta.reframe =
-    rm === 'object' ? 'object crop' : rm === 'disabled' ? '4:3 · bars' : 'face tracking';
+    rm === 'director' ? 'director cuts' :
+    rm === 'object' || rm === 'subject' ? 'object crop' :
+    rm === 'disabled' ? '4:3 · bars' : 'face tracking';
 
   return meta;
 }
