@@ -263,6 +263,31 @@ def create_general_frame(frame, output_width, output_height, force_object_weight
     return final_frame
 
 
+def create_director_fallback_frame(frame, output_width, output_height):
+    """Strict crop fallback for Director — never embeds a horizontal foreground.
+
+    Order: weighted object crop → saliency crop → locked centre crop. This is
+    intentionally different from AUTO's GENERAL letterbox because a sudden
+    horizontal insert is exactly what Director mode is meant to prevent.
+    """
+    obj = _weighted_object_general_crop(
+        frame, output_width, output_height, weights=dict(_DEFAULT_OBJECT_WEIGHTS)
+    )
+    if obj is not None:
+        return obj
+    salient = _salient_general_crop(frame, output_width, output_height)
+    if salient is not None:
+        return salient
+
+    orig_h, orig_w = frame.shape[:2]
+    target_ar = output_width / float(output_height)
+    crop_w = int(round(orig_h * target_ar))
+    if 0 < crop_w < orig_w:
+        x1 = max(0, min(orig_w - crop_w, (orig_w - crop_w) // 2))
+        return _resize_to_output(frame[:, x1:x1 + crop_w], output_width, output_height)
+    return _resize_to_output(frame, output_width, output_height)
+
+
 # FrameShift face-first reframe weights. Mirror the FrameShift GUI defaults
 # (face 1.0, person 0.8, every other COCO class = default 0.5), see
 # https://github.com/fralapo/FrameShift. Used by the ``object`` reframe mode,
@@ -804,7 +829,8 @@ def _render_global_smooth(input_video, ffmpeg_process, cameraman, speaker_tracke
 
 def process_video_to_vertical(input_video, final_output_video, reframe_mode='auto',
                               zoom_end=None, aspect_ratio: float = 9 / 16,
-                              letterbox_zoom: float = 0.0):
+                              letterbox_zoom: float = 0.0,
+                              director_words: list[dict] | None = None):
     """
     Core logic to convert horizontal video to vertical using scene detection and Active Speaker Tracking (MediaPipe).
 
@@ -821,6 +847,11 @@ def process_video_to_vertical(input_video, final_output_video, reframe_mode='aut
     aspect_ratio: output width/height ratio (9/16 vertical default; 1.0 and
     16/9 for square/landscape jobs). Passed explicitly by main.py per job —
     this replaced the old ``reframe.ASPECT_RATIO`` module global.
+
+    director_words: optional clip-relative word dictionaries carrying
+    start/end/speaker. In director mode these drive offline speaker-aware hard
+    cuts. When absent (for example post-hoc reframe of an old job), Director
+    falls back to the existing visual active-speaker tracker.
     """
     # 'object' is the legacy name for the FrameShift face-first 'subject' mode —
     # normalize once here so the rest of this function only ever sees 'subject'.
@@ -883,6 +914,9 @@ def process_video_to_vertical(input_video, final_output_video, reframe_mode='aut
     elif reframe_mode == 'subject':
         print("   🧩 Reframe mode: SUBJECT — FrameShift face-first 9:16 crop (faces 1.0 → persons 0.8 → objects 0.5).")
         print("      (Weighted-interest centroid per frame; black-padded letterbox when no subject is detected.)")
+    elif reframe_mode == 'director':
+        print("   🎬 Reframe mode: DIRECTOR — diarized speaker cuts + scene-local face mapping.")
+        print("      (3–5+ speakers supported; strict crop fallback, no horizontal GENERAL insert.)")
     else:
         print("   🎯 Reframe mode: AUTO — face tracking + dynamic 9:16 crop.")
     print("   Step 1: Detecting scenes...")
@@ -931,9 +965,39 @@ def process_video_to_vertical(input_video, final_output_video, reframe_mode='aut
     elif reframe_mode == 'subject':
         print("\n   🤖 Step 3: Skipping scene analysis (subject mode — every scene is FrameShift face-first cropped).")
         scene_strategies = ['OBJECT'] * len(scenes)
+    elif reframe_mode == 'director':
+        print("\n   🤖 Step 3: Building Director speaker map per source scene...")
+        scene_strategies = ['DIRECTOR'] * len(scenes)
     else:
         print("\n   🤖 Step 3: Analyzing Scenes for Strategy (Single vs Group)...")
         scene_strategies = analyze_scenes_strategy(input_video, scenes)
+
+    director_turns = []
+    director_scene_positions = [{} for _ in scenes]
+    if reframe_mode == 'director' and director_words:
+        try:
+            from clippyme.pipeline.director_camera import (
+                apply_camera_lead,
+                build_speaker_turns,
+                locate_speakers_by_scene,
+            )
+            lead = max(0.0, float(os.getenv("REFRAME_DIRECTOR_LEAD_MS", "200")) / 1000.0)
+            min_hold = max(0.0, float(os.getenv("REFRAME_DIRECTOR_MIN_HOLD_MS", "1000")) / 1000.0)
+            director_turns = apply_camera_lead(
+                build_speaker_turns(director_words),
+                lead=lead,
+                min_hold=min_hold,
+            )
+            scene_ranges = [(float(start.get_seconds()), float(end.get_seconds())) for start, end in scenes]
+            director_scene_positions = locate_speakers_by_scene(
+                input_video, director_turns, scene_ranges,
+            )
+            mapped = sum(len(item) for item in director_scene_positions)
+            print(f"   🎥 Director: {len(director_turns)} speaker turns, {mapped} scene-local speaker position(s).")
+        except Exception as exc:
+            print(f"   ⚠️ Director offline mapping unavailable ({exc}); using visual fallback.", file=sys.stderr)
+            director_turns = []
+            director_scene_positions = [{} for _ in scenes]
 
     print("\n   ✂️ Step 4: Processing video frames...")
 
@@ -1001,6 +1065,9 @@ def process_video_to_vertical(input_video, final_output_video, reframe_mode='aut
         # OBJECT (subject/FrameShift) strategy: hysteresis smoother on the crop
         # centre — without it the raw per-frame centroid shakes every scene.
         frameshift_smoother = PanSmoother()
+        director_current_speaker = None
+        director_visual_id = None
+        director_has_camera = False
 
         # Opt-in two-stage global trajectory smoothing (REFRAME_GLOBAL_SMOOTH).
         # When on, a dedicated track-then-render pass handles all frames and the
@@ -1045,6 +1112,9 @@ def process_video_to_vertical(input_video, final_output_video, reframe_mode='aut
                         # first detection of the scene snaps instead of easing
                         # over from the previous shot's framing.
                         frameshift_smoother.reset()
+                        director_current_speaker = None
+                        director_visual_id = None
+                        director_has_camera = False
             
                 # Determine Strategy for current frame based on scene
                 current_strategy = scene_strategies[current_scene_index] if current_scene_index < len(scene_strategies) else 'TRACK'
@@ -1065,6 +1135,74 @@ def process_video_to_vertical(input_video, final_output_video, reframe_mode='aut
                             frame, OUTPUT_WIDTH, OUTPUT_HEIGHT,
                             smoother=frameshift_smoother,
                         )
+
+                    elif current_strategy == 'DIRECTOR':
+                        from clippyme.pipeline.director_camera import speaker_at
+
+                        is_scene_start = (
+                            frame_number == scene_boundaries[current_scene_index][0]
+                        )
+                        timestamp = frame_number / max(fps, 0.001)
+                        planned_speaker = speaker_at(director_turns, timestamp) if director_turns else None
+                        positions = (
+                            director_scene_positions[current_scene_index]
+                            if current_scene_index < len(director_scene_positions)
+                            else {}
+                        )
+                        planned_x = positions.get(planned_speaker) if planned_speaker is not None else None
+                        force_snap = is_scene_start
+
+                        if planned_x is not None:
+                            # Virtual-camera cut: keep a locked full-height crop
+                            # for the speaker's whole turn. On speaker change we
+                            # SNAP instead of panning across unrelated faces.
+                            if planned_speaker != director_current_speaker or is_scene_start:
+                                cameraman.target_center_x = float(planned_x)
+                                cameraman.target_center_y = original_height / 2
+                                cameraman.target_zoom = 1.0
+                                director_current_speaker = planned_speaker
+                                director_has_camera = True
+                                force_snap = True
+                        else:
+                            # Old jobs / weak diarization / unresolved face:
+                            # reuse the visual MAR tracker. It supports arbitrary
+                            # face IDs, so 3–5+ visible speakers are not special.
+                            if frame_number % 2 == 0:
+                                candidates = detect_face_candidates(frame)
+                                candidates = detection_smoother.smooth(candidates, frame_number)
+                                for cand in candidates:
+                                    cand['mar'] = compute_mouth_aspect_ratio(frame, cand['box'])
+                                target_box = speaker_tracker.get_target(
+                                    candidates, frame_number, original_width
+                                )
+                                if target_box:
+                                    visual_id = speaker_tracker.active_speaker_id
+                                    changed = visual_id != director_visual_id
+                                    cameraman.update_target(target_box)
+                                    director_visual_id = visual_id
+                                    director_has_camera = True
+                                    force_snap = force_snap or changed
+                                elif not director_has_camera:
+                                    person_box = detect_person_yolo(frame)
+                                    if person_box:
+                                        cameraman.update_target(person_box, is_person_box=True)
+                                        director_has_camera = True
+                                        force_snap = True
+
+                        if director_has_camera:
+                            x1, y1, x2, y2 = cameraman.get_crop_box(force_snap=force_snap)
+                            if y2 > y1 and x2 > x1:
+                                output_frame = _resize_to_output(
+                                    frame[y1:y2, x1:x2], OUTPUT_WIDTH, OUTPUT_HEIGHT
+                                )
+                            else:
+                                output_frame = create_director_fallback_frame(
+                                    frame, OUTPUT_WIDTH, OUTPUT_HEIGHT
+                                )
+                        else:
+                            output_frame = create_director_fallback_frame(
+                                frame, OUTPUT_WIDTH, OUTPUT_HEIGHT
+                            )
 
                     elif current_strategy == 'GENERAL':
                         # No faces detected anywhere in scene → letterbox fallback
