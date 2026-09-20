@@ -1,0 +1,47 @@
+name: Director Preview Checks
+
+on:
+  push:
+    branches:
+      - camera-director-preview
+  pull_request:
+    branches:
+      - main-dd6101a
+
+jobs:
+  backend-director:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install host test dependencies
+        run: python -m pip install -e ".[host-tests]"
+      - name: Python syntax check
+        run: >-
+          python -m py_compile
+          src/clippyme/pipeline/director_camera.py
+          src/clippyme/pipeline/reframe.py
+          src/clippyme/pipeline/main.py
+          src/clippyme/api/schemas.py
+          src/clippyme/domain/job_results.py
+      - name: Director unit tests
+        run: python -m pytest -q tests/pipeline/test_director_camera.py
+
+  frontend-director:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Director UI tests
+        run: npx vitest run src/lib/pipelineStep.test.js src/redesign/realApi.test.js
