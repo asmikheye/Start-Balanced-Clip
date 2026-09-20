@@ -764,6 +764,8 @@ if __name__ == '__main__':
                         help='Skip download/analysis/cutting: take --input (an existing 16:9 '
                              'source slice) and re-run reframing + zoom/normalize/cover only. '
                              'Used by POST /api/reframe to switch modes on an already-generated clip.')
+    parser.add_argument('--director-words-json', type=str, default=None,
+                        help=argparse.SUPPRESS)
     parser.add_argument('--language', type=str, default=None,
                         help="Override ASR language for this job (e.g. 'en', 'it', 'es', 'multi'). "
                              "When unset, Deepgram uses DEEPGRAM_LANGUAGE from env (default 'multi' "
@@ -846,10 +848,22 @@ if __name__ == '__main__':
             # one decode+encode generation cheaper than the old separate
             # apply_subtle_zoom pass; reframe.py falls back to the post-pass
             # itself if the fold is impossible.
+            director_words = None
+            if args.reframe_mode == 'director' and args.director_words_json:
+                try:
+                    with open(args.director_words_json, encoding='utf-8') as fh:
+                        loaded_words = json.load(fh)
+                    if isinstance(loaded_words, list):
+                        director_words = loaded_words
+                        print(f"   🎬 Director post-hoc timeline: {len(director_words)} diarized word(s)")
+                except (OSError, json.JSONDecodeError) as exc:
+                    print(f"   ⚠️ Director timeline unavailable ({exc}); using visual fallback.")
+
             success = process_video_to_vertical(
                 args.input, tmp_output, reframe_mode=args.reframe_mode,
                 zoom_end=None if args.no_zoom else 1.05,
-                aspect_ratio=aspect_ratio, letterbox_zoom=letterbox_zoom)
+                aspect_ratio=aspect_ratio, letterbox_zoom=letterbox_zoom,
+                director_words=director_words)
             if not success:
                 print("❌ Reframe failed.")
                 if os.path.exists(tmp_output):
