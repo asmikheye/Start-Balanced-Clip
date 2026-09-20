@@ -78,6 +78,9 @@ from clippyme.pipeline.gemini_request import (  # noqa: E402,F401
     MODEL_PRICING,
     DEFAULT_GEMINI_CHUNK_MAX_TOKENS,
     DEFAULT_GEMINI_CHUNK_OVERLAP_SECONDS,
+    DEFAULT_GEMINI_TPM_LIMIT,
+    DEFAULT_GEMINI_TPM_HEADROOM,
+    GEMINI_RESPONSE_JSON_SCHEMA,
     backoff_seconds,
     build_model_chain,
     build_reformat_prompt,
@@ -455,6 +458,44 @@ def get_viral_clips(transcript_result, video_duration, instructions=None):
         chunk_overlap = DEFAULT_GEMINI_CHUNK_OVERLAP_SECONDS
     chunk_overlap = max(0.0, min(chunk_overlap, 300.0))
 
+    # Proactively stay inside the free-tier rolling input-token budget instead
+    # of deliberately provoking a 429 on chunk 2+. Google's RetryInfo handling
+    # still remains active for quota consumed by other concurrent jobs.
+    try:
+        tpm_limit = int(
+            os.getenv("GEMINI_TPM_LIMIT", str(DEFAULT_GEMINI_TPM_LIMIT))
+            or DEFAULT_GEMINI_TPM_LIMIT
+        )
+    except ValueError:
+        tpm_limit = DEFAULT_GEMINI_TPM_LIMIT
+    tpm_limit = max(0, tpm_limit)
+
+    try:
+        tpm_headroom = int(
+            os.getenv("GEMINI_TPM_HEADROOM", str(DEFAULT_GEMINI_TPM_HEADROOM))
+            or DEFAULT_GEMINI_TPM_HEADROOM
+        )
+    except ValueError:
+        tpm_headroom = DEFAULT_GEMINI_TPM_HEADROOM
+    tpm_headroom = max(0, tpm_headroom)
+    if tpm_limit > 0:
+        tpm_headroom = min(tpm_headroom, max(0, tpm_limit - 1))
+        # A single request must itself fit the rolling budget. The explicit
+        # chunk default (220k) is already lower, so this only protects custom
+        # GEMINI_CHUNK_MAX_TOKENS overrides on free-tier keys.
+        chunk_max_tokens = min(
+            chunk_max_tokens,
+            max(50_000, tpm_limit - tpm_headroom),
+        )
+
+    tpm_state: dict[str, list[tuple[float, int]]] = {}
+    print("🧾 Gemini structured output: JSON schema enabled")
+    if tpm_limit > 0:
+        print(
+            f"⏱️ Gemini TPM guard: {tpm_limit:,}/min "
+            f"(headroom {tpm_headroom:,})"
+        )
+
     creator = os.getenv("CLIPPYME_CREATOR_NAME")
     full_words = extract_prompt_words(transcript_result)
     if not full_words:
@@ -529,7 +570,14 @@ def get_viral_clips(transcript_result, video_duration, instructions=None):
                     retry_model, os.getenv("GEMINI_FALLBACK_MODELS")
                 )
                 retry_resp, retry_used_model = generate_with_model_fallback(
-                    client, retry_prompt, retry_chain, max_attempts=1,
+                    client,
+                    retry_prompt,
+                    retry_chain,
+                    max_attempts=1,
+                    response_json_schema=GEMINI_RESPONSE_JSON_SCHEMA,
+                    tpm_state=tpm_state,
+                    tpm_limit=tpm_limit,
+                    tpm_headroom=tpm_headroom,
                 )
                 print(f"🔁 Retry via {retry_used_model} (cheap reformatter)")
                 return retry_resp.text or ""
@@ -577,6 +625,11 @@ def get_viral_clips(transcript_result, video_duration, instructions=None):
                 chunk["prompt"],
                 model_chain,
                 max_attempts=max_attempts,
+                response_json_schema=GEMINI_RESPONSE_JSON_SCHEMA,
+                tpm_state=tpm_state,
+                tpm_limit=tpm_limit,
+                tpm_headroom=tpm_headroom,
+                input_tokens=chunk["token_count"],
             )
         except Exception as exc:
             if is_rate_limit_error(exc):

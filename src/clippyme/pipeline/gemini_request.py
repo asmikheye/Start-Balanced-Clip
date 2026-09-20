@@ -17,7 +17,7 @@ MODEL_PRICING = {
     "gemini-3.6-flash": {"input": 0.75, "output": 3.75},
     "gemini-3.5-flash": {"input": 1.50, "output": 9.00},
     "gemini-3.5-flash-lite": {"input": 0.30, "output": 2.50},
-    "gemini-3.1-flash-lite": {"input": 0.0, "output": 0.0},
+    "gemini-3.1-flash-lite": {"input": 0.25, "output": 1.50},
     "gemini-3.1-pro-preview": {"input": 2.00, "output": 12.00},
     "gemini-2.5-pro": {"input": 1.25, "output": 10.00},
 }
@@ -30,10 +30,58 @@ MODEL_PRICING = {
 DEFAULT_GEMINI_CHUNK_MAX_TOKENS = 220_000
 DEFAULT_GEMINI_CHUNK_OVERLAP_SECONDS = 60.0
 
+# Observed free-tier quota on this project is 250k input tokens per model/minute.
+# Keep a little headroom for schema/config overhead and small recovery requests.
+# Both values are overrideable from main.py for paid/higher-quota accounts.
+DEFAULT_GEMINI_TPM_LIMIT = 250_000
+DEFAULT_GEMINI_TPM_HEADROOM = 10_000
+
+# GenerateContent structured-output contract. Keep this deliberately within the
+# JSON-Schema subset supported by Gemini (object/array/string/number/integer,
+# properties/required/additionalProperties/minimum/maximum/minItems/maxItems).
+# Semantic constraints such as clip duration and title length remain enforced by
+# clippyme.schemas.ViralClip after the response returns.
+GEMINI_RESPONSE_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "shorts": {
+            "type": "array",
+            "minItems": 0,
+            "maxItems": 15,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "start": {"type": "number", "minimum": 0},
+                    "end": {"type": "number", "minimum": 0},
+                    "viral_score": {"type": "integer", "minimum": 1, "maximum": 100},
+                    "viral_reason": {"type": "string"},
+                    "video_description_for_tiktok": {"type": "string"},
+                    "video_description_for_instagram": {"type": "string"},
+                    "video_title_for_youtube_short": {"type": "string"},
+                    "viral_hook_text": {"type": "string"},
+                },
+                "required": [
+                    "start",
+                    "end",
+                    "viral_score",
+                    "viral_reason",
+                    "video_description_for_tiktok",
+                    "video_description_for_instagram",
+                    "video_title_for_youtube_short",
+                    "viral_hook_text",
+                ],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["shorts"],
+    "additionalProperties": False,
+}
+
 _API_KEY_RE = re.compile(r"AIza[0-9A-Za-z_\-]{20,}")
 
 GEMINI_PROMPT_TEMPLATE = """
-You are a senior short-form video editor specialized in TikTok, IG Reels and YouTube Shorts virality. Read the ENTIRE transcript + word-level timestamps and select the 3–15 MOST VIRAL 15–60s moments.
+You are a senior short-form video editor specialized in TikTok, IG Reels and YouTube Shorts virality. Read the ENTIRE transcript with segment-level timestamps and select up to 15 MOST VIRAL 15–60s moments. Return zero clips if nothing clears the gate; never pad the list with weak moments.
 
 ## IS THIS MOMENT EVEN WORTH CUTTING? (gate — apply BEFORE scoring)
 A clip must hit at least ONE of these HARD. A moment that is merely pleasant,
@@ -243,38 +291,11 @@ TRANSCRIPT SEGMENTS (TOON tabular: header `segments[N]{{s,e,sp,t}}:`, then one r
 
 {user_instructions_block}
 
-## OUTPUT CONTRACT (READ CAREFULLY)
-1. First think step-by-step internally about candidate moments.
-2. Then, on its own line, emit the LITERAL delimiter `### JSON ###`.
-3. Then emit ONLY the JSON object — no markdown, no code fences, no prose after.
+## OUTPUT
+Return only the structured response required by the API schema. Do not add
+Markdown, code fences, or prose outside the structured fields. The `shorts`
+array may be empty when no moment clears the hard gate.
 
-JSON formatting rules (violating = parse failure):
-- Escape every backslash as \\\\ inside strings
-- Use straight double quotes " only — NO curly/smart quotes
-- No trailing commas before }} or ]
-- Strings stay on a single line (no raw \\n mid-string)
-- Every description ENDS with a conversation opener: a genuine question or a
-  debatable opinion about what just happened ("Voi l'avreste venduto?", "Per me
-  ha sbagliato, ditemi che sbaglio"). Never a mechanical CTA ("commenta X e ti
-  mando…", "metti like se…", "seguimi e ti seguo") — that is engagement bait and
-  costs the clip its feed eligibility.
-
-Output schema:
-### JSON ###
-{{
-  "shorts": [
-    {{
-      "start": 12.340,
-      "end": 37.900,
-      "viral_score": 87,
-      "viral_reason": "<>=20 chars, cite specific hook/payoff/quote, same language as transcript>",
-      "video_description_for_tiktok": "<TikTok description, ends with a genuine question or a debatable opinion — never mechanical engagement bait>",
-      "video_description_for_instagram": "<Instagram description, ends with a genuine question or a debatable opinion — never mechanical engagement bait>",
-      "video_title_for_youtube_short": "<max 100 chars, engagement-first bait per TITLE & CAPTION COPY — stakes/speculation/comment trigger, grounded in the clip, never a flat summary>",
-      "viral_hook_text": "<REQUIRED, 3-8 words, scroll-stopping overlay copy — NOT a transcript quote. Use curiosity gap, POV, counter-claim, question, number, or warning pattern. Same language as transcript.>"
-    }}
-  ]
-}}
 """
 
 
@@ -634,6 +655,79 @@ def _retry_after_seconds(exc, default: float = 10.0) -> float:
     return max(1.0, min(float(default), 120.0))
 
 
+def _wait_for_tpm_budget(
+    model_name: str,
+    input_tokens: int,
+    tpm_state,
+    *,
+    tpm_limit: int,
+    tpm_headroom: int,
+    sleep_fn=time.sleep,
+    monotonic_fn=time.monotonic,
+    log_fn=print,
+) -> None:
+    """Wait before a request that would exceed our local rolling TPM budget.
+
+    The API quota is per model, so histories are kept separately. Only
+    SUCCESSFUL requests are recorded (see generate_with_model_fallback); a 429
+    rejected by Google is not double-counted here. This guard coordinates the
+    sequential chunks inside one job. Concurrent jobs/processes can still spend
+    the same API-key quota, so Google's RetryInfo handling remains the final
+    authority when external usage causes a 429.
+    """
+    if tpm_state is None or tpm_limit <= 0:
+        return
+
+    tokens = max(1, int(input_tokens or 1))
+    budget = max(1, int(tpm_limit) - max(0, int(tpm_headroom)))
+    if tokens > budget:
+        # Do not sleep forever for a single request that cannot fit this local
+        # budget. The caller may be on a paid tier with a different real quota;
+        # let the API give the authoritative answer.
+        log_fn(
+            f"⚠️ Gemini {model_name} request is ~{tokens:,} input tokens, "
+            f"above local TPM budget {budget:,}; sending without local wait."
+        )
+        return
+
+    history = tpm_state.setdefault(model_name, [])
+    while True:
+        now = float(monotonic_fn())
+        history[:] = [
+            (float(ts), int(count))
+            for ts, count in history
+            if now - float(ts) < 60.0
+        ]
+        used = sum(count for _, count in history)
+        if used + tokens <= budget:
+            return
+
+        oldest_ts = min(ts for ts, _ in history)
+        wait = max(0.25, 60.0 - (now - oldest_ts) + 0.25)
+        log_fn(
+            f"⏳ Gemini TPM guard: {model_name} used ~{used:,}/{budget:,} "
+            f"input tokens in the last minute; waiting {wait:.0f}s before "
+            f"the next ~{tokens:,}-token request..."
+        )
+        sleep_fn(wait)
+
+
+def _record_tpm_success(
+    model_name: str,
+    input_tokens: int,
+    request_started: float,
+    tpm_state,
+    *,
+    tpm_limit: int,
+) -> None:
+    """Record one successful generation request for the local TPM guard."""
+    if tpm_state is None or tpm_limit <= 0:
+        return
+    tpm_state.setdefault(model_name, []).append(
+        (float(request_started), max(1, int(input_tokens or 1)))
+    )
+
+
 def generate_with_model_fallback(
     client,
     prompt: str,
@@ -642,6 +736,12 @@ def generate_with_model_fallback(
     max_attempts: int = 3,
     sleep_fn=time.sleep,
     log_fn=print,
+    response_json_schema=None,
+    tpm_state=None,
+    tpm_limit: int = 0,
+    tpm_headroom: int = 0,
+    input_tokens: int | None = None,
+    monotonic_fn=time.monotonic,
 ):
     """Generate once, moving to the next model only for retryable failures.
 
@@ -651,13 +751,37 @@ def generate_with_model_fallback(
     """
     attempts = max(1, int(max_attempts))
     last_error = None
+    request_tokens = max(1, int(input_tokens or estimate_prompt_tokens(prompt)))
+    request_config = {"http_options": {"timeout": 120000}}
+    if response_json_schema is not None:
+        request_config["response_mime_type"] = "application/json"
+        request_config["response_json_schema"] = response_json_schema
+
     for model_index, model_name in enumerate(models):
         for attempt in range(attempts):
             try:
+                _wait_for_tpm_budget(
+                    model_name,
+                    request_tokens,
+                    tpm_state,
+                    tpm_limit=tpm_limit,
+                    tpm_headroom=tpm_headroom,
+                    sleep_fn=sleep_fn,
+                    monotonic_fn=monotonic_fn,
+                    log_fn=log_fn,
+                )
+                request_started = float(monotonic_fn())
                 response = client.models.generate_content(
                     model=model_name,
                     contents=prompt,
-                    config={"http_options": {"timeout": 120000}},
+                    config=request_config,
+                )
+                _record_tpm_success(
+                    model_name,
+                    request_tokens,
+                    request_started,
+                    tpm_state,
+                    tpm_limit=tpm_limit,
                 )
                 return response, model_name
             except Exception as exc:
