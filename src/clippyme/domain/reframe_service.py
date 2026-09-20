@@ -7,6 +7,7 @@ persistence lives here. Raises ClippyMeError subclasses — app.py's exception
 handler maps them to HTTP responses.
 """
 import asyncio
+import json
 import logging
 import os
 import sys
@@ -28,7 +29,7 @@ async def run_reframe(*, job_id: str, clip_index: int, mode: str,
     """Re-render one clip with a different reframe mode via ``main.py
     --reframe-only`` and update metadata + in-memory job state.
 
-    ``mode`` must already be canonical ('auto' / 'subject' / 'disabled').
+    ``mode`` must already be canonical ('auto' / 'director' / 'subject' / 'disabled').
     ``letterbox_zoom`` only applies to 'disabled' (0 = whole frame).
     Returns the endpoint response payload (cache-busted ``new_video_url``).
     """
@@ -86,6 +87,28 @@ async def run_reframe(*, job_id: str, clip_index: int, mode: str,
     if job_aspect in ("9:16", "1:1", "16:9"):
         cmd += ["--aspect", job_aspect]
 
+    # Post-hoc Director should be a true A/B re-render, not a weaker visual-only
+    # fallback. Reuse the transcript already stored in metadata; no ASR/API call.
+    director_words_path = None
+    if mode == "director":
+        try:
+            from clippyme.pipeline.director_camera import extract_clip_diarized_words
+            director_words = extract_clip_diarized_words(
+                data.get("transcript"),
+                clip_data.get("start"),
+                clip_data.get("end"),
+            )
+            if director_words:
+                director_words_path = os.path.join(
+                    output_dir, f".director_words_{clip_index}_{time.time_ns()}.json"
+                )
+                with open(director_words_path, "w", encoding="utf-8") as fh:
+                    json.dump(director_words, fh)
+                cmd += ["--director-words-json", director_words_path]
+        except (OSError, TypeError, ValueError) as exc:
+            logger.warning("Could not prepare Director timeline: %s", exc)
+            director_words_path = None
+
     logger.info("Reframe subprocess: %s", " ".join(cmd))
 
     # Propagate persisted config (Deepgram / HF / Gemini keys, transcription
@@ -118,6 +141,12 @@ async def run_reframe(*, job_id: str, clip_index: int, mode: str,
         except Exception as e:
             logger.error("Reframe subprocess launch failed: %s", e)
             raise ClippyMeError(f"Failed to launch reframe: {e}", status_code=500)
+        finally:
+            if director_words_path:
+                try:
+                    os.remove(director_words_path)
+                except OSError:
+                    pass
 
         output_text = (stdout_data or b"").decode(errors="replace")
         if proc.returncode != 0:
