@@ -10,6 +10,7 @@ import { optsToPreselections, clipVideoSrc, clipPreviewSrc, fmtDuration, exportC
 test('reframe mode: legacy object alias normalizes to subject', () => {
   assert.equal(optsToPreselections({ reframeMode: 'object' }).reframe_mode, 'subject');
   assert.equal(optsToPreselections({ reframeMode: 'subject' }).reframe_mode, 'subject');
+  assert.equal(optsToPreselections({ reframeMode: 'director' }).reframe_mode, 'director');
   assert.equal(optsToPreselections({ reframeMode: 'disabled' }).reframe_mode, 'disabled');
 });
 
