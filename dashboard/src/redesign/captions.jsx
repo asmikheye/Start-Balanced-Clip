@@ -44,10 +44,15 @@ const canonReframe = (m) => (m === 'object' ? 'subject' : (m || 'auto'));
 
 export function EditClipModal({ clip, idx, jobId, initial, appliedMode, preselections, sourceBanner,
                                 bulk = false, targetCount = 0, onClose, onApply }) {
+  const lastCompose = clip?.last_compose || {};
   const t0 = initial?.toggles || {};
-  const sp = initial?.subtitleParams || {};
+  const sp = initial?.subtitleParams
+    || (lastCompose?.toggles?.subtitles ? lastCompose.subtitle_params : {})
+    || {};
   const pre = preselections || {};
-  const preSubs = pre.subtitles || {};
+  const preSubs = pre.subtitles
+    || (lastCompose?.toggles?.subtitles ? lastCompose.subtitle_params : {})
+    || {};
 
   // Current on-disk reframe mode (what a fresh reframe would diff against).
   const baseMode = canonReframe(appliedMode || initial?.reframeMode || clip.reframe_mode || 'auto');
@@ -55,7 +60,9 @@ export function EditClipModal({ clip, idx, jobId, initial, appliedMode, preselec
   const [tab, setTab] = useState('reframe');
   const [reframeMode, setReframeMode] = useState(baseMode);
   const [smartcut, setSmartcut] = useState(t0.smartcut ?? !!pre.smartcut);
-  const [subsOn, setSubsOn] = useState(t0.subtitles ?? !!pre.subtitles);
+  const [subsOn, setSubsOn] = useState(
+    t0.subtitles ?? (!!pre.subtitles || !!lastCompose?.toggles?.subtitles),
+  );
   const [hookOn, setHookOn] = useState(t0.hook ?? !!pre.hook);
   const [logoOn, setLogoOn] = useState(t0.logo ?? !!pre.logo);
   const [bannerOn, setBannerOn] = useState(ATTRIBUTION_BANNER_ENABLED && (t0.banner ?? !!(pre.banner || sourceBanner)));
