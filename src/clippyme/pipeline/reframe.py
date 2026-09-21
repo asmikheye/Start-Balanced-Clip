@@ -983,14 +983,17 @@ def process_video_to_vertical(input_video, final_output_video, reframe_mode='aut
             )
             lead = max(0.0, float(os.getenv("REFRAME_DIRECTOR_LEAD_MS", "200")) / 1000.0)
             min_hold = max(0.0, float(os.getenv("REFRAME_DIRECTOR_MIN_HOLD_MS", "1000")) / 1000.0)
+            raw_director_turns = build_speaker_turns(director_words)
             director_turns = apply_camera_lead(
-                build_speaker_turns(director_words),
+                raw_director_turns,
                 lead=lead,
                 min_hold=min_hold,
             )
             scene_ranges = [(float(start.get_seconds()), float(end.get_seconds())) for start, end in scenes]
+            # Face↔speaker evidence must sample the REAL speech intervals, not
+            # the camera schedule shifted early/delayed for editorial timing.
             director_scene_positions = locate_speakers_by_scene(
-                input_video, director_turns, scene_ranges,
+                input_video, raw_director_turns, scene_ranges,
             )
             mapped = sum(len(item) for item in director_scene_positions)
             print(f"   🎥 Director: {len(director_turns)} speaker turns, {mapped} scene-local speaker position(s).")
@@ -1154,16 +1157,23 @@ def process_video_to_vertical(input_video, final_output_video, reframe_mode='aut
 
                         if planned_x is not None:
                             # Virtual-camera cut: keep a locked full-height crop
-                            # for the speaker's whole turn. On speaker change we
-                            # SNAP instead of panning across unrelated faces.
-                            if planned_speaker != director_current_speaker or is_scene_start:
-                                cameraman.target_center_x = float(planned_x)
-                                cameraman.target_center_y = original_height / 2
-                                cameraman.target_zoom = 1.0
-                                director_current_speaker = planned_speaker
-                                director_has_camera = True
+                            # for the speaker's whole turn. Refresh the target on
+                            # EVERY frame so SmoothedCameraman never mistakes a
+                            # long static shot for a lost subject and drifts home.
+                            changed_speaker = planned_speaker != director_current_speaker
+                            cameraman.target_center_x = float(planned_x)
+                            cameraman.target_center_y = original_height / 2
+                            cameraman.target_zoom = 1.0
+                            cameraman.frames_since_target = 0
+                            director_current_speaker = planned_speaker
+                            director_has_camera = True
+                            if changed_speaker or is_scene_start:
                                 force_snap = True
                         else:
+                            # We are leaving the offline virtual camera. Clear
+                            # its identity so a later return to the same mapped
+                            # speaker still produces a real hard CUT.
+                            director_current_speaker = None
                             # Old jobs / weak diarization / unresolved face:
                             # reuse the visual MAR tracker. It supports arbitrary
                             # face IDs, so 3–5+ visible speakers are not special.
