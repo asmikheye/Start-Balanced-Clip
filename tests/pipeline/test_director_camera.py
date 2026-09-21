@@ -90,6 +90,20 @@ def test_camera_min_hold_prevents_ping_pong():
     assert all(b - a >= 1.0 for a, b in zip(starts, starts[1:]))
 
 
+def test_min_hold_drops_short_interjection_without_losing_later_speaker():
+    turns = [
+        SpeakerTurn(0.0, 0.3, 0),
+        SpeakerTurn(0.35, 0.7, 1),
+        SpeakerTurn(0.75, 2.0, 2),
+    ]
+    shifted = apply_camera_lead(turns, lead=0.2, min_hold=1.0)
+    assert [turn.speaker for turn in shifted] == [0, 2]
+    assert shifted[0].start == pytest.approx(0.0)
+    assert shifted[0].end == pytest.approx(1.0)
+    assert shifted[1].start == pytest.approx(1.0)
+    assert shifted[1].end == pytest.approx(2.0)
+
+
 def test_speaker_at_uses_hard_turn_boundaries():
     turns = [SpeakerTurn(0.0, 2.0, 0), SpeakerTurn(2.0, 4.0, 4)]
     assert speaker_at(turns, 1.99) == 0
