@@ -81,6 +81,30 @@ def _validate_timezone(value: Optional[str]) -> Optional[str]:
     return normalized
 
 
+# Small bounded scalar-object validator for Create-time layer recipes. This is
+# defined before ProcessRequest/BatchRequest so Pydantic class decorators can
+# safely reference it during module import.
+def _validate_create_layer_params(value):
+    if value is None:
+        return value
+    if not isinstance(value, dict):
+        raise ValueError("must be an object")
+    if len(value) > 40:
+        raise ValueError("too many keys (max 40)")
+    for key, item in value.items():
+        if isinstance(item, str):
+            if len(item) > 1000:
+                raise ValueError(f"value for {key!r} too long (max 1000)")
+        elif isinstance(item, bool) or item is None:
+            continue
+        elif isinstance(item, (int, float)):
+            if not math.isfinite(item) or abs(item) > 100_000:
+                raise ValueError(f"value for {key!r} out of range")
+        else:
+            raise ValueError(f"value for {key!r} must be a scalar")
+    return value
+
+
 class ProcessRequest(BaseModel):
     url: str = Field(..., max_length=2048)
     instructions: Optional[str] = Field(None, max_length=MAX_INSTRUCTIONS_LEN)
@@ -103,7 +127,7 @@ class ProcessRequest(BaseModel):
     @field_validator("create_subtitles")
     @classmethod
     def _bound_create_subtitles(cls, value):
-        return _validate_overlay_params(value)
+        return _validate_create_layer_params(value)
 
     @field_validator("url")
     @classmethod
@@ -137,7 +161,7 @@ class BatchRequest(BaseModel):
     @field_validator("create_subtitles")
     @classmethod
     def _bound_create_subtitles(cls, value):
-        return _validate_overlay_params(value)
+        return _validate_create_layer_params(value)
 
     @field_validator("urls")
     @classmethod
