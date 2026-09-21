@@ -65,6 +65,14 @@ test('grade preset flows through when set', () => {
   assert.deepEqual(optsToPreselections({ gradePreset: 'vivid_pop' }).grade, { preset: 'vivid_pop' });
 });
 
+test('attribution banner stays disabled even when stale Create opts request it', () => {
+  const p = optsToPreselections({
+    banner: true, bannerPlatform: 'twitch', bannerHandle: 'xqc', bannerYPct: 0.7,
+  });
+  assert.equal(p.banner, false);
+});
+
+
 // --- URL safety: a malicious API response must never become an executable src
 
 test('clipVideoSrc neutralizes javascript: and data: schemes', () => {
