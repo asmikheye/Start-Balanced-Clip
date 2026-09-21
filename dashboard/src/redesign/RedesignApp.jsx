@@ -19,6 +19,7 @@ import { allPresets, getDefaultPresetOpts, getDefaultPresetId, saveUserPreset, d
 import { HOOK_STYLE_DEFAULT } from './data';
 import { clipStateToParams, buildBulkPlan } from '../lib/bulkApply';
 import { runApplyEdit } from '../lib/applyEdit';
+import { applyInitialSubtitles } from '../lib/createPostprocess';
 
 import { useJobSubmission } from '../hooks/useJobSubmission';
 import { useJobPolling } from '../hooks/useJobPolling';
@@ -185,6 +186,17 @@ export default function RedesignApp() {
     try { if (jobId && value) localStorage.setItem(`clippyme_preselections_job_${jobId}`, JSON.stringify(value)); } catch { /* */ }
   };
 
+  // Submission stores preselections BEFORE /api/process returns its job_id, so
+  // the inline write above cannot persist the initial recipe on the first
+  // call. Once both values exist, bind the recipe to that job so reopening it
+  // from History keeps the exact Create-time subtitle settings editable.
+  useEffect(() => {
+    if (!jobId || !preselections) return;
+    try {
+      localStorage.setItem(`clippyme_preselections_job_${jobId}`, JSON.stringify(preselections));
+    } catch { /* localStorage is best-effort in the self-hosted UI */ }
+  }, [jobId, preselections]);
+
   // recipe / manual-edit handling on opts
   const set = (patch) => setOpts((o) => ({ ...o, ...patch, preset: null }));
   const pickPreset = (p) => setOpts((o) => ({ ...o, ...p.opts, preset: p.id }));
@@ -252,20 +264,46 @@ export default function RedesignApp() {
     isActive: status === 'processing',
     onResult: setResults,
     onCompleted: (data) => {
-      setStatus('complete');
-      setConfetti(true);
-      setTimeout(() => setConfetti(false), 3000);
-      pushToast('success', `${data.result?.clips?.length || 0} clips ready`);
-      saveToHistory({
-        jobId,
-        status: 'complete',
-        timestamp: Date.now(),
-        source: processingMedia?.type === 'url' ? processingMedia.payload : processingMedia?.payload?.name || 'Local file',
-        title: data.result?.source_info?.title || undefined,
-        sourceType: processingMedia?.type || 'file',
-        clipCount: data.result?.clips?.length || 0,
-        cost: data.result?.cost_analysis?.total_cost || null,
-      });
+      // The base pipeline is done, but a Create recipe with Subtitles enabled
+      // is not visually complete until the caption layer has been burned.
+      // Keep the user on Processing while we reuse the existing compose
+      // endpoint. This pass is subtitles-only: Hook and every other layer are
+      // explicitly OFF here and remain available/editable from their saved
+      // preselections afterwards.
+      const finish = async () => {
+        const readyClips = data.result?.clips || [];
+        let subtitleResult = { applied: 0, failed: 0 };
+        if (preselections?.subtitles && readyClips.length) {
+          setLogs((prev) => [...prev, '📝 Applying subtitles selected in Create...']);
+          subtitleResult = await applyInitialSubtitles({
+            jobId,
+            clips: readyClips,
+            preselections,
+            composeClip,
+            updateClipState,
+          });
+        }
+
+        setStatus('complete');
+        setConfetti(true);
+        setTimeout(() => setConfetti(false), 3000);
+        if (subtitleResult.failed > 0) {
+          pushToast('warn', `${subtitleResult.applied}/${readyClips.length} clips got subtitles · ${subtitleResult.failed} kept raw`);
+        } else {
+          pushToast('success', `${readyClips.length} clips ready${subtitleResult.applied ? ' · subtitles applied' : ''}`);
+        }
+        saveToHistory({
+          jobId,
+          status: 'complete',
+          timestamp: Date.now(),
+          source: processingMedia?.type === 'url' ? processingMedia.payload : processingMedia?.payload?.name || 'Local file',
+          title: data.result?.source_info?.title || undefined,
+          sourceType: processingMedia?.type || 'file',
+          clipCount: readyClips.length,
+          cost: data.result?.cost_analysis?.total_cost || null,
+        });
+      };
+      void finish();
     },
     onStopped: (data) => {
       // Graceful stop kept the finished clips — route to the editable results
