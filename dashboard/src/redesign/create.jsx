@@ -8,6 +8,7 @@ import { SubtitleControls } from './subtitleControls';
 import { LogoControls, GradeControls } from './layerControls';
 import { BannerControls } from './bannerControls';
 import { validateCreateOptions } from '../lib/createValidation';
+import { ATTRIBUTION_BANNER_ENABLED } from '../config';
 
 function PresetCards({ presets, active, defaultId, onPick, onSetDefault, onDelete, onSaveCurrent }) {
   const corner = { position: 'absolute', top: 12, left: 12, display: 'flex', gap: 8, zIndex: 2 };
@@ -351,9 +352,13 @@ function OptionsPanel({ opts, set }) {
       <OptRow icon="stamp" label="Brand logo" desc="Burn your logo onto every clip"
         on={opts.logo} set={(v) => set({ logo: v })} onConfig={() => setLogoCfg(!logoCfg)} configActive={logoCfg} />
       {opts.logo && logoCfg && <LogoConfig opts={opts} set={set} />}
-      <OptRow icon="rss" label="Attribution banner" desc="Platform logo + handle burned bottom of clip"
-        on={opts.banner} set={(v) => set({ banner: v })} onConfig={() => setBannerCfg(!bannerCfg)} configActive={bannerCfg} />
-      {opts.banner && bannerCfg && <BannerConfig opts={opts} set={set} />}
+      {ATTRIBUTION_BANNER_ENABLED && (
+        <>
+          <OptRow icon="rss" label="Attribution banner" desc="Platform logo + handle burned bottom of clip"
+            on={opts.banner} set={(v) => set({ banner: v })} onConfig={() => setBannerCfg(!bannerCfg)} configActive={bannerCfg} />
+          {opts.banner && bannerCfg && <BannerConfig opts={opts} set={set} />}
+        </>
+      )}
       <div className="opt">
         <div className="oico"><Icon n="palette" /></div>
         <div className="otxt"><div className="ot">Colour grade</div><div className="od">Cinematic colour pass on every clip</div></div>
