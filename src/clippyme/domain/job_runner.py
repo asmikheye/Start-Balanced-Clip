@@ -247,7 +247,13 @@ def make_run_job(*, jobs: dict, output_root: str, on_change=None):
                     create_subtitles = job_data.get("create_subtitles") or {}
                     if create_subtitles:
                         jobs[job_id]["logs"].append(
-                            "📝 Applying subtitles selected in Create..."
+                            "📝 Applying Create subtitles: "
+                            f"mode={create_subtitles.get('mode', 'karaoke')} · "
+                            f"preset={create_subtitles.get('preset', 'classic_white')} · "
+                            f"size={create_subtitles.get('font_size', 'auto')} · "
+                            f"position={create_subtitles.get('position', 'bottom')} · "
+                            f"align={create_subtitles.get('align', 'center')} · "
+                            f"offset={create_subtitles.get('offset_y', 0)}"
                         )
                         _notify()
                         try:
