@@ -15,6 +15,34 @@ const STEP_INFO = {
   finalizing: { pct: 97, idx: 4 }, processing: { pct: 80, idx: 3 },
 };
 
+export function userLogTone(line) {
+  const text = String(line || '');
+  if (/❌|\btraceback\b|\bfatal\b|execution error|process failed|pipeline failed|initial subtitle compose failed|failed qa|all candidate clips failed/i.test(text)) {
+    return 'error';
+  }
+  if (/⚠️|transient error|resource_exhausted|\bquota\b|503 unavailable/i.test(text)) {
+    return 'warning';
+  }
+  if (/✅|✓|\bdone\b|\bcomplete(?:d)?\b|\bfound\b/i.test(text)) {
+    return 'ok';
+  }
+  return 'normal';
+}
+
+export function compactUserLogLine(line) {
+  const text = String(line || '');
+  if (/^⚠️ Gemini .* transient error/i.test(text)) {
+    const model = text.match(/^⚠️ Gemini\s+([^\s]+)\s+transient error/i)?.[1] || 'model';
+    const attempt = text.match(/\(attempt\s+(\d+\/\d+)\)/i)?.[1];
+    const status = text.match(/:\s*(\d{3})\s+[A-Z_]+/)?.[1] || 'temporary';
+    const retry = /Retrying in\s+([^\.]+)\.\.\./i.exec(text)?.[1];
+    return '⚠️ Gemini ' + model + ' temporarily unavailable · ' + status
+      + (attempt ? ' · attempt ' + attempt : '')
+      + (retry ? ' · retry ' + retry : '');
+  }
+  return text;
+}
+
 function MiniClip({ clip }) {
   return <div className="clip fade-in" style={{ cursor: 'default' }}><div className="clip-media" style={{ padding: 0, background: '#000' }}>
     <LazyVideo src={clipVideoSrc(clip)} muted playsInline aria-label="Verified clip preview"
@@ -102,7 +130,15 @@ export function ProcessingView({ media, status, logs = [], step, clips = [], onC
         <div className="log" ref={logRef} role="log" aria-live="polite" aria-relevant="additions"
           onScroll={(event) => { const node = event.currentTarget; followTail.current = node.scrollHeight - node.scrollTop - node.clientHeight < 48; }}>
           {visibleLogs.length === 0 && <div className="ln"><span>waiting for the worker…</span></div>}
-          {visibleLogs.map((line, index) => <div key={`${index}-${line}`} className="ln"><span className={/✓|done|complete|found/i.test(line) ? 'ok' : ''} style={/error/i.test(line) ? { color: 'var(--danger)' } : undefined}>{line}</span></div>)}
+          {visibleLogs.map((line, index) => {
+            const tone = userLogTone(line);
+            const displayLine = compactUserLogLine(line);
+            return <div key={`${index}-${line}`} className="ln"><span
+              className={tone === 'ok' ? 'ok' : ''}
+              style={tone === 'error' ? { color: 'var(--danger)' } : tone === 'warning' ? { color: 'var(--brand-amber)' } : undefined}>
+              {displayLine}
+            </span></div>;
+          })}
           {!failed && <div aria-hidden="true"><span className="cursor" /></div>}
         </div>
       </Panel>
