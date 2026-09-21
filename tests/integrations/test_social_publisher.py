@@ -241,6 +241,35 @@ def test_zernio_api_rejects_redirect_instead_of_treating_it_as_json_success():
     assert exc.value.status_code == 302
 
 
+def test_reschedule_updates_only_timing_without_resending_media():
+    captured = {}
+
+    class Response:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"post": {"_id": "p1", "status": "scheduled"}}
+
+    class Session:
+        headers = {}
+
+        def request(self, method, url, **kwargs):
+            captured.update(method=method, url=url, body=kwargs["json"])
+            return Response()
+
+    client = sp.ZernioClient("sk_test")
+    client._session = Session()
+    result = client.reschedule_post("p1", "2026-09-22T08:30:00+02:00", "Europe/Rome")
+    assert result["status"] == "scheduled"
+    assert captured["method"] == "PUT"
+    assert captured["url"].endswith("/posts/p1")
+    assert captured["body"] == {
+        "scheduledFor": "2026-09-22T08:30:00+02:00", "timezone": "Europe/Rome",
+    }
+    assert "mediaItems" not in captured["body"]
+
+
 def test_scheduler_preserves_requested_timezone():
     from zoneinfo import ZoneInfo
 
@@ -300,6 +329,7 @@ def test_auto_schedule_uses_configured_timezone_not_server_local(monkeypatch, tm
     assert result["scheduled_for"].endswith("+02:00")
     assert captured["timezone"] == "Europe/Rome"
     assert captured["scheduled_for"] == result["scheduled_for"]
+    assert captured["platforms"][0]["platformSpecificData"]["title"] == "title"
 
 
 def test_auto_schedule_stops_if_existing_posts_cannot_be_checked(monkeypatch, tmp_path):

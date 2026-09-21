@@ -91,6 +91,10 @@ async def publish_clip_flow(*, job_id: str, clip_index: int,
             timezone=req.get("timezone") or zernio_cfg.get("timezone") or "Europe/Rome",
             tiktok_settings=req.get("tiktok_settings"),
             start_date=req.get("start_date"),
+            metadata={"clippyme": {
+                "show_id": req["queue_show_id"],
+                "queue_item_id": req["queue_item_id"],
+            }} if req.get("queue_show_id") and req.get("queue_item_id") else None,
         )
     except ValueError as e:
         raise ValidationError(str(e))

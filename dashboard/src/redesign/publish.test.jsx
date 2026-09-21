@@ -3,16 +3,24 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { PublishModal } from './publish';
 
 const publishClip = vi.hoisted(() => vi.fn(async () => ({ success: true })));
+const planQueue = vi.hoisted(() => vi.fn(async (_accounts, incoming) => ({
+  posts: [], duplicates: [], assignments: incoming.map((item, index) => ({
+    ...item, new: true, scheduled_for: `2026-09-${22 + index}T08:30:00+02:00`,
+  })),
+})));
+const applyQueueMoves = vi.hoisted(() => vi.fn(async () => ({ moved: 0 })));
 
 vi.mock('./realApi', () => ({
   clipVideoSrc: () => '',
   publishClip,
   getZernio: async () => ({ configured: true, accounts: { tiktok: 'tk', instagram: 'ig' } }),
+  planQueue, applyQueueMoves,
 }));
 vi.mock('./LazyVideo', () => ({ LazyVideo: () => null }));
 
-test('Publish All hides Caption and sends each clip with its own title', async () => {
+test('Queue hides Caption and schedules each clip in its assigned fixed slot', async () => {
   publishClip.mockClear();
+  planQueue.mockClear();
   render(<PublishModal
     clips={[
       { _idx: 0, video_title_for_youtube_short: 'Первый ролик' },
@@ -22,29 +30,34 @@ test('Publish All hides Caption and sends each clip with its own title', async (
   />);
 
   expect(screen.queryByText('Caption')).toBeNull();
-  fireEvent.click(await screen.findByRole('button', { name: 'Schedule' }));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Queue' }).disabled).toBe(false));
+  fireEvent.click(screen.getByRole('button', { name: 'Queue' }));
   await waitFor(() => expect(publishClip).toHaveBeenCalledTimes(2));
   expect(publishClip.mock.calls.map((call) => call[2].caption)).toEqual([
     'Первый ролик', 'Второй ролик',
   ]);
+  expect(publishClip.mock.calls.map((call) => call[2].schedule_mode)).toEqual(['manual', 'manual']);
+  expect(publishClip.mock.calls.map((call) => call[2].queue_show_id)).toEqual(['job-1', 'job-1']);
 });
 
-test('Publish now sends now even after switching off prime-time scheduling', async () => {
-  publishClip.mockReset().mockResolvedValue({ success: true });
-  const onPublished = vi.fn();
+test('setup exposes one queue action and derives the show from the source video', async () => {
+  publishClip.mockClear();
+  planQueue.mockClear();
   render(<PublishModal clips={[{ _idx: 0, video_title_for_youtube_short: 'Clip' }]}
-    jobId="job-1" onClose={vi.fn()} onPublished={onPublished} />);
+    jobId="job-1" sourceInfo={{ webpage_url: 'https://www.youtube.com/watch?v=qP0fizk1zrE' }}
+    onClose={vi.fn()} />);
 
-  fireEvent.click(await screen.findByRole('switch', { name: 'Schedule for prime time' }));
-  expect(screen.queryByRole('button', { name: 'Queue' })).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'Publish now' }));
-  await waitFor(() => expect(publishClip).toHaveBeenCalledTimes(1));
-  expect(publishClip.mock.calls[0][2]).toMatchObject({ schedule_mode: 'now' });
-  expect(publishClip.mock.calls[0][2]).not.toHaveProperty('start_date');
-  await waitFor(() => expect(onPublished).toHaveBeenCalledWith(0, 'now'));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Queue' }).disabled).toBe(false));
+  expect(screen.queryByRole('switch')).toBeNull();
+  expect(screen.queryByRole('textbox')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Publish now' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Save show mapping' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Queue' }));
+  await waitFor(() => expect(publishClip).toHaveBeenCalled());
+  expect(publishClip.mock.calls[0][2].queue_show_id).toBe('source-qp0fizk1zre');
 });
 
-test('Publish All runs sequentially, reports failures, and retries only failed clips', async () => {
+test('Queue runs uploads sequentially, reports failures, and retries only failed clips', async () => {
   let releaseFirst;
   publishClip.mockReset()
     .mockImplementationOnce(() => new Promise((resolve) => { releaseFirst = resolve; }))
@@ -56,14 +69,15 @@ test('Publish All runs sequentially, reports failures, and retries only failed c
     { _idx: 1, _apiIdx: 6, video_title_for_youtube_short: 'Second' },
   ]} jobId="job-1" onClose={vi.fn()} onPublished={onPublished} />);
 
-  fireEvent.click(await screen.findByRole('button', { name: 'Schedule' }));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Queue' }).disabled).toBe(false));
+  fireEvent.click(screen.getByRole('button', { name: 'Queue' }));
   await waitFor(() => expect(publishClip).toHaveBeenCalledTimes(1));
   expect(publishClip.mock.calls[0][1]).toBe(4);
   releaseFirst({ success: true });
   await waitFor(() => expect(publishClip).toHaveBeenCalledTimes(2));
   expect(publishClip.mock.calls[1][1]).toBe(6);
-  expect(publishClip.mock.calls[0][2].schedule_mode).toBe('auto');
-  expect(publishClip.mock.calls[0][2].start_date).not.toBe(publishClip.mock.calls[1][2].start_date);
+  expect(publishClip.mock.calls[0][2].schedule_mode).toBe('manual');
+  expect(publishClip.mock.calls[0][2].scheduled_for).not.toBe(publishClip.mock.calls[1][2].scheduled_for);
   expect(await screen.findByText('1/2 clips scheduled')).toBeTruthy();
   expect(screen.getByText('Zernio unavailable')).toBeTruthy();
 
@@ -72,4 +86,20 @@ test('Publish All runs sequentially, reports failures, and retries only failed c
   expect(publishClip.mock.calls[2][1]).toBe(6);
   expect(await screen.findByText('2/2 clips scheduled')).toBeTruthy();
   expect(onPublished).toHaveBeenCalledTimes(2);
+});
+
+test('Queue stops the batch when Zernio rate-limits the account', async () => {
+  publishClip.mockReset().mockRejectedValue(new Error(
+    'Zernio POST /posts → HTTP 429: This account is temporarily rate-limited. Please wait 26m before posting again.',
+  ));
+  render(<PublishModal clips={[
+    { _idx: 0, video_title_for_youtube_short: 'First' },
+    { _idx: 1, video_title_for_youtube_short: 'Second' },
+    { _idx: 2, video_title_for_youtube_short: 'Third' },
+  ]} jobId="job-1" onClose={vi.fn()} />);
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Queue' }));
+  await screen.findByText('0/3 clips scheduled');
+  expect(publishClip).toHaveBeenCalledTimes(1);
+  expect(screen.getAllByText('Zernio rate limit. Try again in 26 minutes.')).toHaveLength(3);
 });

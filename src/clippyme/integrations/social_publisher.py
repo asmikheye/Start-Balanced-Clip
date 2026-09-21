@@ -224,6 +224,28 @@ class ZernioClient:
             return data.get("posts", []) or []
         return data or []
 
+    def list_all_scheduled_posts(self, max_pages: int = 20) -> list[dict]:
+        """Read every scheduled page so queue planning is never truncated."""
+        posts: list[dict] = []
+        for page in range(1, max_pages + 1):
+            data = self._request("GET", "/posts", params={
+                "status": "scheduled", "sortBy": "scheduled-asc", "page": page, "limit": 100,
+            })
+            if not isinstance(data, dict) or not isinstance(data.get("posts"), list):
+                raise ZernioError("invalid scheduled posts response")
+            posts.extend(data["posts"])
+            pages = (data.get("pagination") or {}).get("pages")
+            if (isinstance(pages, int) and page >= pages) or not data["posts"]:
+                return posts
+        raise ZernioError("scheduled posts exceed the safe pagination limit")
+
+    def reschedule_post(self, post_id: str, scheduled_for: str, timezone: str) -> dict:
+        """Change only timing; omitted mediaItems stay attached in Zernio."""
+        data = self._request("PUT", f"/posts/{post_id}", json={
+            "scheduledFor": scheduled_for, "timezone": timezone,
+        })
+        return data.get("post", data) if isinstance(data, dict) else {}
+
     def presign_upload(self, filename: str, content_type: str = "video/mp4",
                        size_bytes: Optional[int] = None) -> dict:
         """POST /v1/media/presign — returns {uploadUrl, publicUrl, key, type}."""
@@ -272,6 +294,7 @@ class ZernioClient:
         publish_now: bool = False,
         tiktok_settings: Optional[dict] = None,
         title: Optional[str] = None,
+        metadata: Optional[dict] = None,
     ) -> dict:
         """POST /v1/posts — create the post (scheduled or immediate)."""
         body: dict[str, Any] = {
@@ -288,6 +311,8 @@ class ZernioClient:
             body["scheduledFor"] = scheduled_for
         if tiktok_settings:
             body["tiktokSettings"] = tiktok_settings
+        if metadata:
+            body["metadata"] = metadata
         return self._request("POST", "/posts", json=body)
 
 
@@ -414,6 +439,7 @@ def publish_clip(
     tiktok_settings: Optional[dict] = None,
     scheduler: Optional[SmartScheduler] = None,
     start_date: Optional[str] = None,
+    metadata: Optional[dict] = None,
 ) -> dict:
     """Publish a single clip via Zernio.
 
@@ -562,15 +588,26 @@ def publish_clip(
 
     # 3. Create post
     media_items = [{"type": "video", "url": public_url}]
+    # Zernio treats the root title as display-only. YouTube reads its actual
+    # video title from platformSpecificData.title.
+    resolved_targets = []
+    for target in platform_targets:
+        resolved = dict(target)
+        if resolved.get("platform") == "youtube":
+            settings = dict(resolved.get("platformSpecificData") or {})
+            settings.setdefault("title", title)
+            resolved["platformSpecificData"] = settings
+        resolved_targets.append(resolved)
     response = client.create_post(
         content=effective_content,
         title=title,
         media_items=media_items,
-        platforms=platform_targets,
+        platforms=resolved_targets,
         scheduled_for=final_scheduled_for,
         timezone=timezone,
         publish_now=publish_now,
         tiktok_settings=tiktok_settings,
+        metadata=metadata,
     )
 
     # 4. Extract post id (response shape varies)

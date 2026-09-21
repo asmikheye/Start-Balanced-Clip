@@ -179,6 +179,30 @@ export async function publishClip(jobId, index, body) {
   return res.json().catch(() => ({}));
 }
 
+async function queueRequest(path, body) {
+  const res = await apiFetch(getApiUrl(`/api/publish/queue/${path}`), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    const e = new Error((err.detail || `HTTP ${res.status}`).toString());
+    e.status = res.status;
+    throw e;
+  }
+  return res.json();
+}
+
+export const getQueuePosts = (accountIds) => queueRequest('posts', { account_ids: accountIds });
+export const mapQueueShow = (accountIds, postId, showId) => queueRequest('map-show', {
+  account_ids: accountIds, post_id: postId, show_id: showId,
+});
+export const planQueue = (accountIds, incoming) => queueRequest('plan', {
+  account_ids: accountIds, incoming,
+});
+export const applyQueueMoves = (accountIds, moves) => queueRequest('apply', {
+  account_ids: accountIds, moves,
+});
+
 export async function restoreJob(jobId) {
   const res = await apiFetch(getApiUrl(`/api/history/${jobId}/restore`), { method: 'POST' });
   if (!res.ok) { const e = new Error('Restore failed'); e.status = res.status; throw e; }

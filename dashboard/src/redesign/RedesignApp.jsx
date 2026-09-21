@@ -491,8 +491,9 @@ export default function RedesignApp() {
 
       {publishClips && (
         <PublishModal clips={publishClips} jobId={jobId} clipStates={clipStates} preselections={preselections}
+          sourceInfo={results?.source_info}
           onClose={() => setPublishClips(null)}
-          onPublished={(idx, mode) => updateClipStateT(idx, mode === 'auto'
+          onPublished={(idx, mode) => updateClipStateT(idx, mode !== 'now'
             ? { scheduledAt: Date.now(), publishedAt: null }
             : { publishedAt: Date.now(), scheduledAt: null })}
           pushToast={pushToast} />

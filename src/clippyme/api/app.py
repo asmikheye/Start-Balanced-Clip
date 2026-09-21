@@ -69,6 +69,7 @@ from clippyme.storage.config_store import (
 from clippyme.domain.job_worker import make_workers
 from clippyme.domain.history_service import scan_history, is_valid_job_id
 from clippyme.api.config_routes import router as config_router
+from clippyme.api.queue_routes import router as queue_router
 
 load_dotenv()
 
@@ -279,6 +280,7 @@ app.mount("/fonts", StaticFiles(directory="fonts"), name="fonts")
 # router — they touch none of the job runtime state, so keeping them out of
 # app.py lets this module stay focused on the job lifecycle.
 app.include_router(config_router)
+app.include_router(queue_router)
 
 
 @app.get("/")

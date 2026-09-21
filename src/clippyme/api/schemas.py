@@ -315,11 +315,23 @@ class PublishRequest(BaseModel):
     grade_params: Optional[dict] = None
     banner_params: Optional[dict] = None
     drop_ranges: Optional[list] = None
+    queue_show_id: Optional[str] = Field(None, min_length=1, max_length=64)
+    queue_item_id: Optional[str] = Field(None, min_length=1, max_length=120, pattern=r"^[A-Za-z0-9._:\-]+$")
 
     @field_validator("timezone")
     @classmethod
     def _validate_tz(cls, value: str) -> str:
         return _validate_timezone(value)  # type: ignore[return-value]
+
+    @field_validator("queue_show_id")
+    @classmethod
+    def _normalize_queue_show(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = value.strip().casefold()
+        if not normalized:
+            raise ValueError("queue_show_id cannot be blank")
+        return normalized
 
     @field_validator("scheduled_for")
     @classmethod

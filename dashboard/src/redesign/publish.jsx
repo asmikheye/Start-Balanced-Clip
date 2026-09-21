@@ -1,11 +1,10 @@
 // ClippyMe redesign — PublishModal: publish selected clips to Zernio.
 import { useState, useEffect, useRef } from 'react';
-import { Icon, Social, Btn, Switch, PlatPill, PLATFORMS } from './primitives';
+import { Icon, Social, Btn, PlatPill, PLATFORMS } from './primitives';
 import { LazyVideo } from './LazyVideo';
 import { clipVideoSrc } from './realApi';
-import { publishClip, getZernio } from './realApi';
+import { publishClip, getZernio, planQueue, applyQueueMoves } from './realApi';
 import { seedToggles, seedHookParams, seedSubtitleParams, seedLogoParams, seedBannerParams } from '../lib/seedClipParams';
-import { localDatePlus } from '../lib/scheduleDates';
 import { useModalA11y } from './useModalA11y';
 
 // redesign plat id → backend platform + account key. Exported so other
@@ -24,6 +23,7 @@ function PubRow({ clip, idx, st, plats, mode }) {
   const tasks = Object.keys(plats).filter((k) => plats[k]);
   const done = status === 'done';
   const error = status === 'error';
+  const paused = status === 'paused';
   return (
     <div className={'pubrow' + (done ? ' done' : '')}>
       <div className="pthumb" style={{ background: '#000', overflow: 'hidden' }}>
@@ -44,25 +44,48 @@ function PubRow({ clip, idx, st, plats, mode }) {
           <span className={'pstat' + (done ? ' done' : status === 'uploading' ? '' : ' wait')}
             style={error ? { color: 'var(--danger)' } : undefined}
             title={error && errMsg ? errMsg : undefined}>
-            {error ? 'failed' : done ? (mode === 'auto' ? 'scheduled' : 'sent') : status === 'uploading' ? 'uploading' : 'waiting'}
+            {error ? 'failed' : paused ? 'paused' : done ? (mode === 'queue' ? 'scheduled' : 'sent') : status === 'uploading' ? 'uploading' : 'waiting'}
           </span>
         </div>
-        {error && errMsg && <div role="alert" style={{ color: 'var(--danger)', fontSize: 12, overflowWrap: 'anywhere', marginTop: 5 }}>{errMsg}</div>}
+        {(error || paused) && errMsg && <div role="alert" style={{ color: 'var(--danger)', fontSize: 12, overflowWrap: 'anywhere', marginTop: 5 }}>{errMsg}</div>}
       </div>
       <div className="pcheck"><Icon n={done ? 'check' : error ? 'x' : 'loader'} /></div>
     </div>
   );
 }
 
-export function PublishModal({ clips, jobId, clipStates = {}, preselections, onClose, onPublished, pushToast }) {
+function automaticShowId(sourceInfo, jobId) {
+  const sourceUrl = sourceInfo?.webpage_url || '';
+  try {
+    const parsed = new URL(sourceUrl);
+    const videoId = parsed.searchParams.get('v') || parsed.pathname.split('/').filter(Boolean).pop();
+    if (videoId) return `source-${videoId}`.slice(0, 64).toLowerCase();
+  } catch { /* Local uploads do not have a URL. */ }
+  const source = sourceInfo?.title || sourceInfo?.uploader_id || sourceInfo?.banner?.handle || jobId;
+  return String(source || jobId).trim().toLowerCase().replace(/[^\p{L}\p{N}._-]+/gu, '-').replace(/^-+|-+$/g, '').slice(0, 64) || jobId;
+}
+
+function publishError(error) {
+  const raw = error?.message || 'Publish failed';
+  if (!/(?:http\s*)?429|rate[- ]?limit/i.test(raw)) return { message: raw, rateLimited: false };
+  const wait = raw.match(/wait\s+(\d+)m/i)?.[1];
+  return {
+    message: wait
+      ? `Zernio rate limit. Try again in ${wait} minutes.`
+      : 'Zernio rate limit. Wait a little, then retry the remaining clips.',
+    rateLimited: true,
+  };
+}
+
+export function PublishModal({ clips, jobId, clipStates = {}, preselections, sourceInfo, onClose, onPublished, pushToast }) {
   const all = clips.length > 1;
   const [zernio, setZernio] = useState(null);
   const [plats, setPlats] = useState({ tiktok: true, ig: true, yt: false });
-  const [schedule, setSchedule] = useState(true);
   const [stage, setStage] = useState('setup'); // setup | uploading | done
   const [progress, setProgress] = useState({});
   const [runMode, setRunMode] = useState(null);
   const [outcome, setOutcome] = useState({ ok: 0, fail: 0 });
+  const showId = automaticShowId(sourceInfo, jobId);
 
   useEffect(() => { getZernio().then(setZernio).catch(() => setZernio({ configured: false })); }, []);
 
@@ -83,12 +106,9 @@ export function PublishModal({ clips, jobId, clipStates = {}, preselections, onC
     .map((k) => ({ platform: PLAT[k].platform, accountId: accounts[PLAT[k].acct] }));
   const targets = platTargets();
   const ready = zernio?.configured && targets.length > 0;
+  const accountIds = targets.map((target) => target.accountId);
 
-  // `batchPos` is the clip's position within this batch (0-based). When
-  // scheduling, each clip gets its own day (start_date = today + batchPos) so
-  // a per-platform daily cap doesn't reject the tail of the batch — replicates
-  // the one-clip-per-day spacing from the original publisher.
-  const buildBody = (clip, idx, batchPos = 0, mode = 'auto') => {
+  const buildBody = (clip, idx, mode = 'now', assignment = null) => {
     const cs = clipStates[idx] || {};
     const toggles = cs.toggles ?? seedToggles(preselections);
     const any = Object.values(toggles).some(Boolean);
@@ -102,8 +122,12 @@ export function PublishModal({ clips, jobId, clipStates = {}, preselections, onC
       title,
       caption: title,
       platforms: targets,
-      schedule_mode: mode,
-      ...(mode === 'auto' ? { start_date: localDatePlus(batchPos) } : {}),
+      schedule_mode: mode === 'queue' ? 'manual' : 'now',
+      ...(mode === 'queue' ? {
+        scheduled_for: assignment.scheduled_for,
+        queue_show_id: showId,
+        queue_item_id: assignment.id,
+      } : {}),
       timezone: zernio?.timezone || 'Europe/Rome',
       tiktok_settings: plats.tiktok && accounts.tiktok ? {
         privacy_level: 'PUBLIC_TO_EVERYONE', allow_comment: true, allow_duet: true,
@@ -115,44 +139,101 @@ export function PublishModal({ clips, jobId, clipStates = {}, preselections, onC
 
   const run = async (mode, retryFailed = false) => {
     if (!ready) return;
-    const pending = clips.map((clip, batchPos) => ({ clip, batchPos }))
-      .filter(({ clip }) => !retryFailed || progress[clip._idx]?.state === 'error');
+    const pending = clips.map((clip) => ({ clip }))
+      .filter(({ clip }) => !retryFailed || ['error', 'paused'].includes(progress[clip._idx]?.state));
     if (!pending.length) return;
     setRunMode(mode);
     setStage('uploading');
     if (!retryFailed) setProgress({});
     let ok = retryFailed ? outcome.ok : 0;
     let fail = 0;
+    let assignmentById = new Map();
+    let duplicateIds = new Set();
+    if (mode === 'queue') {
+      try {
+        const incoming = pending.map(({ clip }) => ({
+          id: `${jobId}:${clip._apiIdx ?? clip._idx}`,
+          show_id: showId,
+        }));
+        const plan = await planQueue(accountIds, incoming);
+        duplicateIds = new Set(plan.duplicates || []);
+        assignmentById = new Map(plan.assignments.filter((item) => item.new).map((item) => [item.id, item]));
+        const existing = new Map(plan.posts.map((post) => [post.id, post]));
+        const moves = plan.assignments.filter((item) => !item.new).map((item) => ({
+          post_id: item.id,
+          expected_scheduled_for: existing.get(item.id)?.scheduled_for,
+          scheduled_for: item.scheduled_for,
+        })).filter((move) => move.expected_scheduled_for
+          && new Date(move.expected_scheduled_for).getTime() !== new Date(move.scheduled_for).getTime());
+        await applyQueueMoves(accountIds, moves);
+        for (const duplicate of duplicateIds) {
+          const clip = pending.find(({ clip: value }) => `${jobId}:${value._apiIdx ?? value._idx}` === duplicate)?.clip;
+          if (clip) {
+            setProgress((p) => ({ ...p, [clip._idx]: { state: 'done' } }));
+            ok += 1;
+            try { onPublished?.(clip._idx, 'queue'); } catch { /* Existing remote post is authoritative. */ }
+          }
+        }
+      } catch (error) {
+        const message = error?.message || 'Could not build the queue';
+        pending.forEach(({ clip }) => setProgress((p) => ({ ...p, [clip._idx]: { state: 'error', error: message } })));
+        if (mountedRef.current) { setOutcome({ ok, fail: pending.length }); setStage('done'); }
+        return;
+      }
+    }
     // Compose and upload one clip at a time. A batch can contain large videos;
     // concurrent ffmpeg renders and uploads compete for the same resources.
-    for (const { clip, batchPos } of pending) {
+    for (let pendingIndex = 0; pendingIndex < pending.length; pendingIndex += 1) {
+      const { clip } = pending[pendingIndex];
       const idx = clip._idx;
       // Resolve to the backend's ABSOLUTE `shorts` position for the actual
       // publish call — `idx` (array position) stays the key into local
       // clipStates/progress, which are unaffected by a manual-publish gap.
       const apiIdx = clip._apiIdx ?? idx;
+      const itemId = `${jobId}:${apiIdx}`;
+      const assignment = assignmentById.get(itemId);
+      if (mode === 'queue' && !assignment) {
+        if (duplicateIds.has(itemId)) continue;
+        setProgress((p) => ({ ...p, [idx]: { state: 'error', error: 'Queue did not assign a slot' } }));
+        fail += 1;
+        continue;
+      }
       setProgress((p) => ({ ...p, [idx]: { state: 'uploading' } }));
       try {
-        const result = await publishClip(jobId, apiIdx, buildBody(clip, idx, batchPos, mode));
+        const result = await publishClip(jobId, apiIdx, buildBody(clip, idx, mode, assignment));
         if (result?.success === false) throw new Error('Zernio did not accept this post');
         setProgress((p) => ({ ...p, [idx]: { state: 'done' } }));
         ok += 1;
         try { onPublished?.(idx, mode); } catch { /* The post was accepted; local state is best-effort. */ }
       } catch (e) {
-        // Surface the real reason (e.g. a Zernio daily-limit 429) instead of a
-        // bare "failed", so the user knows to retry that platform tomorrow.
-        setProgress((p) => ({ ...p, [idx]: { state: 'error', error: e?.message || 'Publish failed' } }));
+        const failure = publishError(e);
+        setProgress((p) => ({ ...p, [idx]: { state: 'error', error: failure.message } }));
         fail += 1;
+        // A 429 applies to the account, so sending every following clip only
+        // produces the same failure and can extend the provider cooldown.
+        if (failure.rateLimited) {
+          const remaining = pending.slice(pendingIndex + 1).filter(({ clip: value }) => {
+            const id = `${jobId}:${value._apiIdx ?? value._idx}`;
+            return assignmentById.has(id) && !duplicateIds.has(id);
+          });
+          setProgress((p) => {
+            const next = { ...p };
+            remaining.forEach(({ clip: value }) => { next[value._idx] = { state: 'paused', error: failure.message }; });
+            return next;
+          });
+          fail += remaining.length;
+          break;
+        }
       }
     }
     if (!mountedRef.current) return;
     setOutcome({ ok, fail });
     setStage('done');
-    pushToast?.(fail === 0 ? 'success' : 'warn', `${mode === 'auto' ? 'Scheduled' : 'Sent'} ${ok}/${clips.length}${fail ? `, ${fail} failed` : ''}`);
+    pushToast?.(fail === 0 ? 'success' : 'warn', `${mode === 'queue' ? 'Queued' : 'Sent'} ${ok}/${clips.length}${fail ? `, ${fail} failed` : ''}`);
   };
 
-  const title = stage === 'done' ? (outcome.fail ? 'Publishing incomplete' : runMode === 'auto' ? 'Scheduled' : 'Sent to Zernio')
-    : all ? `Publish ${clips.length} clips` : `Publish · ${clips[0]?.video_title_for_youtube_short || ''}`;
+  const title = stage === 'done' ? (outcome.fail ? 'Publishing incomplete' : runMode === 'queue' ? 'Queue updated' : 'Sent to Zernio')
+    : all ? `Queue ${clips.length} clips` : `Queue · ${clips[0]?.video_title_for_youtube_short || ''}`;
 
   return (
     // Backdrop click is a mouse-only convenience; keyboard users close via
@@ -189,18 +270,13 @@ export function PublishModal({ clips, jobId, clipStates = {}, preselections, onC
                       })}
                     </div>
                   </div>
-                  <div className="opt" style={{ borderBottom: 0 }}>
-                    <div className="oico"><Icon n="calendar-clock" /></div>
-                    <div className="otxt"><div className="ot">Schedule for prime time</div><div className="od">SmartScheduler picks the slot · off = publish now</div></div>
-                    <div className="r"><Switch on={schedule} onChange={setSchedule} label="Schedule for prime time" /></div>
-                  </div>
                 </>
               )}
             </div>
             <div className="modal-foot">
-              <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
               <div className="mf-right">
-                <Btn variant="grad" icon={schedule ? 'calendar-clock' : 'send'} disabled={!ready} onClick={() => run(schedule ? 'auto' : 'now')}>{schedule ? 'Schedule' : 'Publish now'}</Btn>
+                <Btn variant="grad" icon="calendar-clock" disabled={!ready}
+                  onClick={() => run('queue')}>Queue</Btn>
               </div>
             </div>
           </>
@@ -217,13 +293,13 @@ export function PublishModal({ clips, jobId, clipStates = {}, preselections, onC
         {stage === 'done' && (
           <div className="modal-body" style={{ textAlign: 'center', padding: '36px 24px' }}>
             <div style={{ width: 60, height: 60, borderRadius: '50%', background: 'var(--success-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 18px' }}>
-              <Icon n={outcome.fail ? 'x' : runMode === 'auto' ? 'calendar-check' : 'check'} style={{ width: 28, height: 28, color: outcome.fail ? 'var(--danger)' : 'var(--brand-teal)' }} />
+              <Icon n={outcome.fail ? 'x' : runMode === 'queue' ? 'calendar-check' : 'check'} style={{ width: 28, height: 28, color: outcome.fail ? 'var(--danger)' : 'var(--brand-teal)' }} />
             </div>
-            <div style={{ fontWeight: 700, fontSize: 18 }}>{outcome.ok}/{clips.length} clips {runMode === 'auto' ? 'scheduled' : 'sent'}</div>
+            <div style={{ fontWeight: 700, fontSize: 18 }}>{outcome.ok}/{clips.length} clips {runMode === 'queue' ? 'scheduled' : 'sent'}</div>
             <p style={{ color: 'var(--fg-3)', fontSize: 13.5, marginTop: 8, lineHeight: 1.5 }}>
-              {outcome.fail ? `${outcome.fail} failed. Check the errors below and retry only those clips.` : runMode === 'auto' ? 'Scheduled in Zernio for prime time.' : 'Sent to Zernio for immediate publishing.'}
+              {outcome.fail ? `${outcome.fail} clips were not published. Wait if Zernio imposed a cooldown, then retry them.` : runMode === 'queue' ? 'The fixed-slot schedule is saved in Zernio. This computer can now be turned off.' : 'Sent to Zernio for immediate publishing.'}
             </p>
-            {outcome.fail > 0 && <div className="pubgrid" style={{ marginTop: 18, textAlign: 'left' }}>{clips.filter((c) => progress[c._idx]?.state === 'error').map((c) => <PubRow key={c._idx} clip={c} idx={c._idx} st={progress[c._idx]} plats={plats} mode={runMode} />)}</div>}
+            {outcome.fail > 0 && <div className="pubgrid" style={{ marginTop: 18, textAlign: 'left' }}>{clips.filter((c) => ['error', 'paused'].includes(progress[c._idx]?.state)).map((c) => <PubRow key={c._idx} clip={c} idx={c._idx} st={progress[c._idx]} plats={plats} mode={runMode} />)}</div>}
             <div style={{ marginTop: 22, display: 'flex', justifyContent: 'center', gap: 10 }}>
               {outcome.fail > 0 && <Btn variant="grad" onClick={() => run(runMode, true)}>Retry failed</Btn>}
               <Btn variant="secondary" onClick={onClose}>Done</Btn>
