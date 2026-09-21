@@ -418,33 +418,22 @@ export async function setMonitorPublishing(monitorId, enabled) {
 // Map the redesign's flat `opts` into the preselections shape the existing
 // hooks + seedClipParams expect (subtitles/hook as truthy objects).
 export function optsToPreselections(opts) {
-  return {
-    // Tri-state reframe mode. Fall back to the legacy boolean (`reframe`) for
-    // any persisted preselections saved before the 3-mode selector landed.
-    // 'object' is the legacy name for 'subject' (FrameShift face-first); the
-    // backend accepts both but normalize here so new jobs persist the new name.
+  const pre = {
     reframe_mode: (opts.reframeMode === 'object' ? 'subject' : opts.reframeMode) || (opts.reframe === false ? 'disabled' : 'auto'),
-    // Fixed letterbox zoom (percent). Only meaningful with reframe 'disabled';
-    // 0/absent = the whole frame between the black bars.
     letterbox_zoom: Number(opts.letterboxZoom) || 0,
     aspect: opts.aspect || '9:16',
     language: opts.language,
     no_zoom: !opts.zoom,
     skip_analysis: !opts.detect,
     smartcut: opts.smartcut,
-    // Per-job Gemini model override (quick-picker). Omitted when blank →
-    // lib/api.js skips the field and the backend uses the Settings default.
     model: (opts.model || '').trim() || undefined,
     subtitles: opts.subtitles
       ? {
-          mode: opts.subMode, preset: opts.subPreset, position: opts.subPosition || 'bottom',
-          // Horizontal alignment applies to both modes ('center' | 'left').
+          mode: opts.subMode,
+          preset: opts.subPreset,
+          position: opts.subPosition || 'bottom',
           align: opts.subAlign || 'center',
-          // Vertical nudge applies to both modes.
           offset_y: opts.subOffsetY || 0,
-          // Karaoke font-size override (0 = Auto → use the preset size; omitted
-          // so seedSubtitleParams doesn't force a value) + text/stroke colours
-          // (stroke defaults black; both recolourable per preset).
           ...(opts.subMode === 'karaoke'
             ? {
                 font_color: opts.subColor || '#FFFFFF',
@@ -452,8 +441,6 @@ export function optsToPreselections(opts) {
                 ...(opts.subFontSize > 0 ? { font_size: opts.subFontSize } : {}),
               }
             : {}),
-          // Classic-mode typography (karaoke draws style from the preset, so
-          // these are only meaningful for classic).
           ...(opts.subMode === 'classic'
             ? {
                 font: opts.subFont || 'Montserrat-Black',
@@ -466,20 +453,33 @@ export function optsToPreselections(opts) {
         }
       : false,
     hook: opts.hooks ? { position: opts.hookPos, size: opts.hookSize, ...(opts.hookStyle || {}) } : false,
-    // Logo overlay is a compose-time layer (not a process-time arg) — persisted
-    // here only so each generated clip inherits the toggle + placement default.
     logo: opts.logo ? { position: opts.logoPos || 'top-right', size: opts.logoSize || 'M' } : false,
-    // Colour grade default for every generated clip (compose-time layer). Off
-    // ('none') → omitted so seedToggles leaves the grade toggle off.
     grade: opts.gradePreset && opts.gradePreset !== 'none' ? { preset: opts.gradePreset } : false,
-    // Attribution banner default (compose-time layer). No source URL exists
-    // yet at Create time, so this is just the user's manual choice — the
-    // per-job auto-suggestion (source_info.banner) only prefills the Edit
-    // modal once a job has actually run.
     banner: ATTRIBUTION_BANNER_ENABLED && opts.banner
       ? { enabled: true, platform: opts.bannerPlatform || 'kick', handle: opts.bannerHandle || '', y_pct: opts.bannerYPct ?? 0.85 }
       : false,
   };
+
+  // Create-time compose is deliberately SUBTITLES-ONLY for now.
+  // Hook/logo/grade/smartcut remain editable in Results and are not touched
+  // by this fix.
+  pre.compose = {
+    toggles: {
+      smartcut: false,
+      subtitles: !!pre.subtitles,
+      hook: false,
+      logo: false,
+      grade: false,
+      banner: false,
+    },
+    hook_params: {},
+    subtitle_params: pre.subtitles || {},
+    logo_params: {},
+    grade_params: {},
+    banner_params: {},
+    drop_ranges: [],
+  };
+  return pre;
 }
 
 // Seconds → m:ss for clip duration display.
