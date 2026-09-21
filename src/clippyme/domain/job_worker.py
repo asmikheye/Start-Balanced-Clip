@@ -16,6 +16,37 @@ logger = logging.getLogger("clippyme")
 MAX_LOG_LINES = int(os.environ.get("MAX_LOG_LINES", "2000"))
 
 
+_INTERNAL_LOG_NOISE = (
+    "INFO: Created TensorFlow Lite XNNPACK delegate for CPU.",
+    "WARNING: All log messages before absl::InitializeLog() is called are written to STDERR",
+)
+_TQDM_PREFIXES = ("Processing:", "Analyzing Scenes:", "Pass 1:", "Pass 2:")
+
+
+def _hide_from_user_log(line: str) -> bool:
+    """Return True for noisy third-party/progress output that is not actionable.
+
+    The subprocess stream intentionally contains both stdout and stderr. Keep
+    diagnostics available in debug logging, but do not dump known harmless
+    MediaPipe/TFLite chatter or carriage-return tqdm progress into the
+    dashboard's user-facing log.
+    """
+    text = str(line or "").strip()
+    if not text:
+        return True
+    if text in _INTERNAL_LOG_NOISE:
+        return True
+    if (
+        "inference_feedback_manager.cc:" in text
+        and "Feedback manager requires a model with a single signature inference." in text
+        and "Disabling support for feedback tensors." in text
+    ):
+        return True
+    if text.startswith(_TQDM_PREFIXES) and "%" in text:
+        return True
+    return False
+
+
 def enqueue_output(out, job_id: str, jobs: Dict[str, Dict]) -> None:
     """Read lines from a subprocess stream and append them to the job's log list.
 
@@ -29,6 +60,10 @@ def enqueue_output(out, job_id: str, jobs: Dict[str, Dict]) -> None:
             # subprocess keeps working, with no user-facing explanation.
             decoded_line = line.decode("utf-8", errors="replace").strip()
             if decoded_line:
+                if _hide_from_user_log(decoded_line):
+                    logger.debug("🧹 [Hidden Job Output] %s", decoded_line[:240])
+                    continue
+
                 is_download_progress = decoded_line.startswith("⬇️ Download")
                 if is_download_progress:
                     # This row can update every second; keep Docker/server logs
