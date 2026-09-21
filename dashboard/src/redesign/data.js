@@ -5,19 +5,25 @@ export const PRESETS = [
     id: 'viral', icon: 'flame', title: 'Viral pack',
     desc: 'Best moments, karaoke subs, hooks & smart-cut.',
     opts: { clips: 7, aspect: '9:16', reframeMode: 'auto', detect: true, smartcut: true, zoom: true,
-      subtitles: true, subMode: 'karaoke', subPreset: 'hormozi_bold', hooks: true },
+      subtitles: true, subMode: 'karaoke', subPreset: 'hormozi_bold',
+      subPosition: 'bottom', subAlign: 'left', subOffsetY: 0,
+      subColor: '#FFFFFF', subStroke: '#000000', subFontSize: 0, hooks: true },
   },
   {
     id: 'talking', icon: 'user-round', title: 'Talking head',
     desc: 'Face-tracked reframe, clean minimal captions.',
     opts: { clips: 5, aspect: '9:16', reframeMode: 'auto', detect: true, smartcut: true, zoom: false,
-      subtitles: true, subMode: 'karaoke', subPreset: 'minimal_clean', hooks: false },
+      subtitles: true, subMode: 'karaoke', subPreset: 'minimal_clean',
+      subPosition: 'bottom', subAlign: 'left', subOffsetY: 0,
+      subColor: '#FFFFFF', subStroke: '#000000', subFontSize: 0, hooks: false },
   },
   {
     id: 'podcast', icon: 'mic', title: 'Podcast clips',
     desc: 'Long-form cuts, classic subs, no zoom.',
     opts: { clips: 9, aspect: '9:16', reframeMode: 'auto', detect: true, smartcut: true, zoom: false,
-      subtitles: true, subMode: 'classic', subPreset: 'classic_white', hooks: true },
+      subtitles: true, subMode: 'classic', subPreset: 'classic_white',
+      subPosition: 'bottom', subAlign: 'left', subOffsetY: 0,
+      subFont: 'Montserrat-Black', subColor: '#FFFFFF', subOutlineW: 2, subBg: false, hooks: true },
   },
 ];
 
@@ -109,10 +115,9 @@ export const PIPE = [
   { id: 'transcribe', name: 'Transcribe', icon: 'audio-lines', meta: 'deepgram nova-3' },
   { id: 'detect', name: 'Detect moments', icon: 'sparkles', meta: 'gemini scoring' },
   { id: 'reframe', name: 'Reframe 9:16', icon: 'scan-face', meta: 'face tracking' },
-  // Captions/hooks are NOT burned during the main render — they're applied at
-  // compose/download time (user-triggered in results). Worded as a roadmap node
-  // so the live bar doesn't imply the render is doing caption work right now.
-  { id: 'caption', name: 'Caption & hook', icon: 'captions', meta: 'added on export' },
+  // Create-selected subtitles are burned after the base clip render and before
+  // the job becomes completed. Hooks still remain an Edit/Export-time layer.
+  { id: 'caption', name: 'Captions', icon: 'captions', meta: 'burn selected subtitles' },
   { id: 'finish', name: 'Finish', icon: 'check', meta: 'render out' },
 ];
 
