@@ -75,3 +75,20 @@ test('buildBulkPlan skips the source clip and plans the rest', () => {
   assert.equal(plan[0].clip.id, 'a');
   assert.equal(plan[0].params.toggles.smartcut, true);
 });
+
+
+test('unconfirmed stale reframe state does not override backend clip mode', () => {
+  const src = clipStateToParams(
+    { reframeMode: 'director' },
+    {},
+    { reframe_mode: 'auto', viral_hook_text: 'x' },
+  );
+  assert.equal(src.reframeMode, 'auto');
+
+  const params = buildClipParams(
+    { reframeMode: 'director', toggles: {}, subtitleParams: {}, hookParams: {}, logoParams: {}, gradeParams: {}, bannerParams: {} },
+    { reframe_mode: 'auto', viral_hook_text: 'x' },
+    { reframeMode: 'director' },
+  );
+  assert.equal(params.baseMode, 'auto');
+});
