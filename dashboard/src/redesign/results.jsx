@@ -4,8 +4,8 @@ import { Icon, Btn, Badge } from './primitives';
 import { LazyVideo } from './LazyVideo';
 import { clipPreviewSrc, fmtDuration, downloadClip, exportClip } from './realApi';
 
-const REFRAME_ICON = { auto: 'crop', subject: 'scan-face', object: 'scan-face', disabled: 'square' };
-const REFRAME_LABEL = { auto: 'Auto', subject: 'Subject', object: 'Subject', disabled: 'Off' };
+const REFRAME_ICON = { director: 'scan-face', auto: 'crop', subject: 'scan-face', object: 'scan-face', disabled: 'square' };
+const REFRAME_LABEL = { director: 'Director', auto: 'Auto', subject: 'Subject', object: 'Subject', disabled: 'Off' };
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const ClipCard = memo(function ClipCard({ clip, index, jobId, state, preselections, onUpdate, onEdit, onApplyToAll, selectMode, onPublish, pushToast }) {
