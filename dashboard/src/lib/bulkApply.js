@@ -26,7 +26,7 @@ import { seedToggles, seedHookParams, seedSubtitleParams, seedLogoParams, seedBa
  */
 export function clipStateToParams(state, preselections, clip) {
   return {
-    reframeMode: state?.reframeMode || clip?.reframe_mode || 'auto',
+    reframeMode: (state?.reframeConfirmed ? state?.reframeMode : null) || clip?.reframe_mode || 'auto',
     toggles: state?.toggles || seedToggles(preselections),
     subtitleParams: state?.subtitleParams || seedSubtitleParams(preselections),
     hookParams: state?.hookParams || seedHookParams(clip, preselections),
@@ -60,7 +60,7 @@ function targetHookText(srcParams, targetClip, targetState) {
  * @returns params for reprocessClip (with baseMode for the reframe diff)
  */
 export function buildClipParams(srcParams, targetClip, targetState) {
-  const baseMode = targetState?.reframeMode || targetClip?.reframe_mode || 'auto';
+  const baseMode = (targetState?.reframeConfirmed ? targetState?.reframeMode : null) || targetClip?.reframe_mode || 'auto';
   return {
     reframeMode: srcParams.reframeMode,
     baseMode,
