@@ -60,7 +60,7 @@ services:
       # header, but can also be set here for CLI runs that shell into the
       # container directly.
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-3.5-flash}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-3.6-flash}
       # yt-dlp hardening. NOCHECKCERT=1 disables SSL verification only in
       # trusted sandboxes; THROTTLED_RATE is the bytes/sec floor below
       # which yt-dlp re-fetches a slow segment (default 102400 = 100 KB/s).

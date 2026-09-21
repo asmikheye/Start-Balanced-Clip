@@ -16,7 +16,8 @@ import { relTime } from '../lib/relTime';
 // Curated fallback when live discovery is unavailable (no key yet / offline).
 // Mirrors the allow-list prefixes (gemini-2.5- / gemini-3) the backend accepts.
 const FALLBACK_MODELS = [
-  { name: 'gemini-3.5-flash', display_name: 'Gemini 3.5 Flash — recommended' },
+  { name: 'gemini-3.6-flash', display_name: 'Gemini 3.6 Flash — recommended' },
+  { name: 'gemini-3.5-flash', display_name: 'Gemini 3.5 Flash — fallback' },
   { name: 'gemini-2.5-flash', display_name: 'Gemini 2.5 Flash — budget' },
   { name: 'gemini-3.1-pro-preview', display_name: 'Gemini 3.1 Pro — max quality' },
   { name: 'gemini-2.5-pro', display_name: 'Gemini 2.5 Pro — max quality' },
@@ -297,7 +298,7 @@ export function SettingsView({ apiKey, onApiKey, cookiesConfigured, onCookiesCha
             <select className="key-input" style={{ width: 'auto', minWidth: 200, fontFamily: 'var(--font-sans)' }}
               value={model}
               onChange={(e) => { setModel(e.target.value); saveKeys({ GEMINI_MODEL: e.target.value }); }}>
-              {!model && <option value="">Default (gemini-3.5-flash)</option>}
+              {!model && <option value="">Default (gemini-3.6-flash)</option>}
               {model && !models.some((m) => m.name === model) && <option value={model}>{model}</option>}
               {models.map((m) => <option key={m.name} value={m.name}>{m.display_name || m.name}</option>)}
             </select>

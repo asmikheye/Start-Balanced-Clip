@@ -167,7 +167,7 @@ def _normalize_incoming_keys(data: dict) -> dict:
 def load_persistent_config() -> dict:
     config = {
         "GEMINI_API_KEY": os.environ.get("GEMINI_API_KEY", ""),
-        "GEMINI_MODEL": os.environ.get("GEMINI_MODEL", "gemini-3.5-flash"),
+        "GEMINI_MODEL": os.environ.get("GEMINI_MODEL", "gemini-3.6-flash"),
         "YOUTUBE_COOKIES": os.environ.get("YOUTUBE_COOKIES", ""),
         "HF_TOKEN": os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN") or "",
         "DEEPGRAM_API_KEY": os.environ.get("DEEPGRAM_API_KEY", ""),

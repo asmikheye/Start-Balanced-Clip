@@ -184,9 +184,9 @@ def test_model_chain_adds_lite_fallback_without_duplicates():
 
 
 def test_default_model_chain_exhausts_current_free_tier_fallbacks():
-    assert build_model_chain("gemini-3.5-flash") == [
-        "gemini-3.5-flash",
+    assert build_model_chain("gemini-3.6-flash") == [
         "gemini-3.6-flash",
+        "gemini-3.5-flash",
         "gemini-3.5-flash-lite",
         "gemini-3.1-flash-lite",
     ]

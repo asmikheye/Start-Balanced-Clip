@@ -27,7 +27,8 @@ export const PRESETS = [
 // (gemini-2.5- / gemini-3) the backend accepts.
 export const GEMINI_MODELS = [
   ['', 'Default (Settings)'],
-  ['gemini-3.5-flash', '3.5 Flash · recommended'],
+  ['gemini-3.6-flash', '3.6 Flash · recommended'],
+  ['gemini-3.5-flash', '3.5 Flash · fallback'],
   ['gemini-2.5-flash', '2.5 Flash · budget'],
   ['gemini-3.1-pro-preview', '3.1 Pro · max quality'],
   ['gemini-2.5-pro', '2.5 Pro · max quality'],
