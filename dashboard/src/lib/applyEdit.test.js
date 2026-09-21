@@ -149,3 +149,29 @@ test('generic failure → truncated error toast, processing cleared', async () =
   expect(msg).toMatch(/reprocess failed/);
   expect(msg.length).toBeLessThan(120);
 });
+
+
+test('failed reframe rolls optimistic mode back to baseMode', async () => {
+  const updates = [];
+  const toasts = [];
+  await runApplyEdit({
+    jobId: 'job-1',
+    idx: 0,
+    params: {
+      reframeMode: 'director',
+      baseMode: 'auto',
+      toggles: { smartcut: false, subtitles: false, hook: false, logo: false, grade: false, banner: false },
+      subtitleParams: {}, hookParams: {}, logoParams: {}, gradeParams: {}, bannerParams: {}, dropRanges: [],
+    },
+    api: {
+      reframeClip: async () => { const err = new Error('boom'); err.status = 500; throw err; },
+      composeClip: async () => { throw new Error('unexpected compose'); },
+    },
+    updateClipState: (_idx, patch) => updates.push(patch),
+    pushToast: (type, msg) => toasts.push({ type, msg }),
+    now: () => 123,
+  });
+  assert.equal(updates.at(-1).reframeMode, 'auto');
+  assert.equal(updates.at(-1).processing, false);
+  assert.equal(toasts.at(-1).type, 'error');
+});
