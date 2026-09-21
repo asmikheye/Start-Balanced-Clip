@@ -65,6 +65,13 @@ test('grade preset flows through when set', () => {
   assert.deepEqual(optsToPreselections({ gradePreset: 'vivid_pop' }).grade, { preset: 'vivid_pop' });
 });
 
+test('brand logo placement and size flow through when enabled', () => {
+  assert.deepEqual(
+    optsToPreselections({ logo: true, logoPos: 'bottom-center', logoSize: 'L' }).logo,
+    { position: 'bottom-center', size: 'L' },
+  );
+});
+
 test('attribution banner stays disabled even when stale Create opts request it', () => {
   const p = optsToPreselections({
     banner: true, bannerPlatform: 'twitch', bannerHandle: 'xqc', bannerYPct: 0.7,

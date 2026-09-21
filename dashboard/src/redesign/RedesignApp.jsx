@@ -42,7 +42,7 @@ const DEFAULT_OPTS = {
   banner: false, bannerPlatform: 'kick', bannerHandle: '', bannerYPct: 0.85,
   language: 'multi',
   platforms: { tiktok: true, ig: true, yt: false },
-  preset: 'viral',
+  preset: null,
 };
 
 const CONFETTI_COLORS = ['#E6428D', '#9850C3', '#675ADD', '#0A81D9', '#02C5BF', '#F7BC59'];
@@ -96,11 +96,19 @@ export default function RedesignApp() {
   const [currentStep, setCurrentStep] = useState(null);
   const [processingMedia, setProcessingMedia] = useState(restoredSession?.processingMedia || null);
   const [paused, setPaused] = useState(false);
-  // Seed Create from the user's default preset (if any) so their preferred
-  // settings are already applied on load.
-  const [opts, setOpts] = useState(() => ({ ...DEFAULT_OPTS, ...(getDefaultPresetOpts() || {}) }));
+  // v2 starts with no built-in presets. If the user later marks one of their
+  // own saved recipes as default, restore that recipe and show it selected.
+  const initialDefaultPresetId = useMemo(() => getDefaultPresetId(), []);
+  const [opts, setOpts] = useState(() => {
+    const saved = getDefaultPresetOpts();
+    return {
+      ...DEFAULT_OPTS,
+      ...(saved || {}),
+      preset: saved ? initialDefaultPresetId : null,
+    };
+  });
   const [presetsVersion, setPresetsVersion] = useState(0);
-  const [defaultPresetId, setDefaultPresetId] = useState(getDefaultPresetId());
+  const [defaultPresetId, setDefaultPresetId] = useState(initialDefaultPresetId);
   // presetsVersion is a manual cache-bust trigger: allPresets() reads from
   // external (localStorage) state, so bumping the version must force a recompute.
   // eslint-disable-next-line react-hooks/exhaustive-deps

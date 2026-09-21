@@ -1,40 +1,44 @@
-// Create-flow presets. Manual config is always primary; presets are just a
-// quick way to apply a saved bundle of options. Three built-ins ship with the
-// app; users can save their own and pick one as the default (auto-applied when
-// Create loads). Stored per-browser in localStorage — fits the self-hosted,
-// single-user app (no accounts/backend needed).
-import { PRESETS as BUILTIN_PRESETS } from './data';
+// User-created Create-flow presets.
+//
+// Built-in presets were intentionally retired. v2 uses fresh localStorage keys
+// so installations that previously had Viral/Talking/Podcast/Standard entries
+// start with an empty preset shelf without deleting the old v1 data.
+const PRESETS_KEY = 'clippyme_user_presets_v2';
+const DEFAULT_KEY = 'clippyme_default_preset_v2';
 
-const PRESETS_KEY = 'clippyme_user_presets_v1';
-const DEFAULT_KEY = 'clippyme_default_preset_v1';
+// Presets describe how a clip is made, not what source is currently loaded.
+// Everything else is captured automatically so new recipe controls cannot be
+// silently omitted from "Save current".
+const SOURCE_ONLY_KEYS = new Set([
+  'mode', 'source', 'url', 'file', 'fileName', 'batch', 'batchFiles', 'preset',
+]);
 
-// The create-options fields a preset captures (everything except the source).
-// Keep this in sync with the Clip Options controls in create.jsx — a missing
-// key means "Save current" silently drops that setting. `reframe` (legacy
-// boolean) is retained only for back-compat reads; `reframeMode` is the live
-// 3-mode control.
-export const PRESET_KEYS = [
-  'clipsAuto', 'clips', 'aspect', 'detect', 'reframe', 'reframeMode', 'letterboxZoom', 'model',
-  'smartcut', 'zoom',
-  'subtitles', 'subMode', 'subPreset', 'subPosition', 'subFont', 'subColor',
-  'hooks', 'hookPos', 'hookSize', 'hookStyle',
-  'logo', 'logoPos', 'logoSize', 'language',
-];
-
-export function captureOpts(opts) {
-  const o = {};
-  for (const k of PRESET_KEYS) if (opts[k] !== undefined) o[k] = opts[k];
-  return o;
+function clonePresetValue(value) {
+  if (value === undefined) return undefined;
+  if (value === null || typeof value !== 'object') return value;
+  return JSON.parse(JSON.stringify(value));
 }
 
-export { BUILTIN_PRESETS };
+export function captureOpts(opts = {}) {
+  const captured = {};
+  for (const [key, value] of Object.entries(opts)) {
+    if (SOURCE_ONLY_KEYS.has(key) || value === undefined) continue;
+    try {
+      captured[key] = clonePresetValue(value);
+    } catch {
+      // A future non-serializable UI-only value must not prevent saving the
+      // rest of the recipe.
+    }
+  }
+  return captured;
+}
 
 export function loadUserPresets() {
   try { return JSON.parse(localStorage.getItem(PRESETS_KEY)) || []; } catch { return []; }
 }
 
 export function allPresets() {
-  return [...BUILTIN_PRESETS, ...loadUserPresets()];
+  return loadUserPresets();
 }
 
 export function saveUserPreset(name, opts) {
@@ -69,7 +73,7 @@ export function setDefaultPreset(id) {
   } catch { /* */ }
 }
 
-// Options of the default preset (or null) — used to seed Create on load.
+// Options of the user's default preset (or null) — used to seed Create on load.
 export function getDefaultPresetOpts() {
   const id = getDefaultPresetId();
   if (!id) return null;

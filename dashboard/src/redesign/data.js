@@ -1,25 +1,4 @@
-// ClippyMe redesign — shared constants (presets, fonts, languages, pipeline steps).
-
-export const PRESETS = [
-  {
-    id: 'viral', icon: 'flame', title: 'Viral pack',
-    desc: 'Best moments, karaoke subs, hooks & smart-cut.',
-    opts: { clips: 7, aspect: '9:16', reframeMode: 'auto', detect: true, smartcut: true, zoom: true,
-      subtitles: true, subMode: 'karaoke', subPreset: 'hormozi_bold', hooks: true },
-  },
-  {
-    id: 'talking', icon: 'user-round', title: 'Talking head',
-    desc: 'Face-tracked reframe, clean minimal captions.',
-    opts: { clips: 5, aspect: '9:16', reframeMode: 'auto', detect: true, smartcut: true, zoom: false,
-      subtitles: true, subMode: 'karaoke', subPreset: 'minimal_clean', hooks: false },
-  },
-  {
-    id: 'podcast', icon: 'mic', title: 'Podcast clips',
-    desc: 'Long-form cuts, classic subs, no zoom.',
-    opts: { clips: 9, aspect: '9:16', reframeMode: 'auto', detect: true, smartcut: true, zoom: false,
-      subtitles: true, subMode: 'classic', subPreset: 'classic_white', hooks: true },
-  },
-];
+// ClippyMe redesign — shared constants (fonts, languages, pipeline steps).
 
 // Per-job Gemini model quick-picker (Create → Clip Options). '' = use the
 // global Settings model. Live discovery lives in Settings; here we keep a small
