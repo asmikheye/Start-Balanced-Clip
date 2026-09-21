@@ -87,3 +87,46 @@ def test_exit_two_never_retries(monkeypatch, tmp_path):
     assert calls == ["1"]
     assert jobs["j"]["status"] == "failed"
     assert any("non-retryable" in line for line in jobs["j"]["logs"])
+
+
+def test_successful_job_applies_initial_subtitles_before_completed(monkeypatch, tmp_path):
+    _patch_runner_dependencies(monkeypatch, job_runner)
+    monkeypatch.setattr(job_runner.subprocess, "Popen", lambda *a, **k: _FinishedProcess(0))
+    monkeypatch.setattr(
+        job_runner,
+        "load_final_result",
+        lambda *a, **k: {"clips": [{"video_url": "/videos/j/raw.mp4"}]},
+    )
+    seen = []
+
+    async def fake_initial_compose(job_id, job_data, output_root):
+        seen.append(job_data.get("compose_recipe"))
+        return 1
+
+    monkeypatch.setattr(job_runner, "apply_initial_compose", fake_initial_compose)
+    jobs = {"j": {
+        "status": "queued",
+        "logs": [],
+        "cmd": ["python", "-m", "x"],
+        "env": {},
+        "output_dir": str(tmp_path),
+        "max_attempts": 3,
+        "compose_recipe": {
+            "toggles": {"subtitles": True},
+            "subtitle_params": {
+                "mode": "karaoke",
+                "preset": "fire_impact",
+                "font_size": 54,
+                "position": "bottom",
+                "align": "center",
+                "offset_y": -12,
+            },
+        },
+    }}
+    run_job = job_runner.make_run_job(jobs=jobs, output_root=str(tmp_path))
+    asyncio.run(run_job("j", jobs["j"]))
+
+    assert jobs["j"]["status"] == "completed"
+    assert seen and seen[0]["subtitle_params"]["preset"] == "fire_impact"
+    assert any("Applying Create subtitles" in line for line in jobs["j"]["logs"])
+    assert any("Create subtitles applied to 1 clip" in line for line in jobs["j"]["logs"])
