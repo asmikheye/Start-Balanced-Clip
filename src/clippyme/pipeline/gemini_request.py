@@ -98,7 +98,7 @@ well-spoken or on-topic is NOT a clip, however clean the audio is.
 Emit FEWER, harder clips rather than padding the list with competent-but-flat
 moments: a weak clip costs the account more than a missing one.
 The reaction beat is PART of the clip — the laugh, the silence after the reveal,
-the "cosa?!". End after it lands, never before.
+the "what?!". End after it lands, never before.
 
 ## VIRAL_SCORE RUBRIC (1–100)
 Score each axis from 1 to 20 and sum (cap at 100):
@@ -155,19 +155,21 @@ normally on the words alone.
   the first word of a sentence and close on the last word of a sentence.
 - viral_reason MUST be at least 20 characters and cite the specific hook, payoff or quote
 - viral_hook_text is REQUIRED, NEVER empty: 3-8 words, written AS A SCROLL-STOPPING OVERLAY — NOT a transcript quote, NOT the first words the speaker says. It is standalone copywriting designed to make someone stop scrolling on TikTok/Reels. Use one of these proven patterns:
-    * Curiosity gap: "Nessuno ti dice questo", "What they don't want you to know"
-    * POV / relatable: "POV: sei il primo a scoprirlo", "POV: you just realized…"
-    * Counter-intuitive claim: "Stavo sbagliando tutto", "I was doing it wrong"
-    * Direct question: "E se fosse tutto falso?", "What if you're wrong?"
-    * Number / stakes: "3 cose che nessuno dice", "3 things nobody tells you"
-    * Warning / callout: "Non guardare se…", "Stop scrolling if…"
-    * Stakes / consequence: "Dopo questo può smettere", "This ends his career"
-    * Prediction bait: "Indovina quanto vale", "Guess the number"
+    * Curiosity gap: "What nobody tells you"
+    * POV / relatable: "POV: you just realized…"
+    * Counter-intuitive claim: "I was doing it wrong"
+    * Direct question: "What if you're wrong?"
+    * Number / stakes: "3 things nobody tells you"
+    * Warning / callout: "Stop scrolling if…"
+    * Stakes / consequence: "After this, everything changes"
+    * Prediction bait: "Guess the number"
   The hook must TEASE the content of the clip without spoiling the payoff. Same language as the transcript. Title Case or Sentence case, never ALL CAPS.
 - No generic intros/outros or pure sponsorship unless they ARE the hook
 
-## LANGUAGE RULE
-Every text field (viral_reason, descriptions, titles, hook_text) MUST be in the SAME LANGUAGE as the transcript.
+## LANGUAGE RULE (HARD)
+Infer the transcript language ONLY from TRANSCRIPT SEGMENTS.
+Every text field (viral_reason, descriptions, titles, hook_text) MUST be in the SAME NATURAL LANGUAGE as the transcript.
+The examples below demonstrate structure only. NEVER copy their language; rewrite every example pattern naturally in the transcript language.
 
 ## SPEAKER ATTRIBUTION RULE (CRITICAL)
 The transcript carries NO reliable speaker identity — you cannot tell who is
@@ -220,31 +222,30 @@ Write video_title_for_youtube_short and both descriptions with these rules:
    contain is misleading metadata and gets the account penalised.
 7. STACK EXACTLY TWO triggers per title (e.g. stakes + open loop). One is
    flat, three reads as spam.
-8. Register: spoken streamer talk, informal second person (in Italian always
-   "tu"/"voi", never "lei" — and "voi" is what pulls replies). Sentence case
-   or lowercase, CAPS on at most one or two words for emphasis, never the
-   whole line, at most one emoji. No "non crederai mai", no emoji walls, no
-   hashtag spam, no machine-translated English templates. Sound like a viewer
-   in chat, not like a newspaper headline.
+8. Register: spoken streamer talk, natural informal second person for the
+   transcript's language. Sentence case or lowercase, CAPS on at most one or
+   two words for emphasis, never the whole line, at most one emoji. No generic
+   "you won't believe this" clickbait, no emoji walls, no hashtag spam, and no
+   machine-translated templates. Sound like a viewer in chat, not like a
+   newspaper headline.
 9. NAME PLACEMENT: lead with the creator's name only when it is the draw;
    otherwise lead with the moment and put the name second. Use the handle the
    audience actually uses, never a legal name.
 
-Title patterns that work (rotate them — the same template every clip burns
-credibility fast):
-  * Consequence bait:   "Dopo questo <creator> può smettere di streammare"
-  * Valuation debate:   "Quanto pensate valga? Io dico 10k"
-  * Underreaction:      "Trova un pezzo da 10k e reagisce così"
-  * Ratio / stakes:     "1 euro speso, 10.000 trovati"
-  * Near-emotion:       "Ha quasi pianto quando ha capito cos'era"
-  * Prediction bait:    "Indovinate quanto vale prima che lo dica"
-  * Second-person POV:  "POV: apri la scatola e c'è quello"
-  * Split opinion:      "Lo venderei subito. Voi no, lo so"
-  * Open question:      "Secondo voi è vero o è finto?"
-  * Chat as antagonist: "La chat gli ha detto di venderlo. Aveva ragione?"
-  * Withheld reveal:    "Non riusciva più a parlare. Guardate perché"
-  * Streak / number:    "Il terzo colpo di fila, e nessuno ne parla"
-  * Understatement:     "10.000 euro e ha detto solo 'ok'"
+Title patterns that work (STRUCTURE ONLY — rewrite them in the transcript language):
+  * Consequence bait:   "<creator> could quit after this"
+  * Valuation debate:   "What do you think it's worth? I'd say 10k"
+  * Underreaction:      "Finds a 10k piece and reacts like this"
+  * Ratio / stakes:     "1 spent, 10,000 found"
+  * Near-emotion:       "Almost cried when the truth landed"
+  * Prediction bait:    "Guess the value before the reveal"
+  * Second-person POV:  "POV: you open the box and find this"
+  * Split opinion:      "I'd sell it immediately. Would you?"
+  * Open question:      "Real or fake?"
+  * Chat as antagonist: "Chat told them to sell it. Were they right?"
+  * Withheld reveal:    "They stopped talking. Watch why"
+  * Streak / number:    "Third hit in a row and nobody noticed"
+  * Understatement:     "10,000 and all they said was 'ok'"
 
 A deliberately debatable ANGLE (a valuation you call too low, a choice you
 call wrong) is the strongest comment driver — people correct a claim far more
