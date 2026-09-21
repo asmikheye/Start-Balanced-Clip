@@ -89,3 +89,10 @@ test('grade row: preset segments (with the extra Off entry) patch gradePreset', 
   fireEvent.click(row.getByRole('button', { name: 'Off' }));
   expect(set).toHaveBeenLastCalledWith({ gradePreset: 'none' });
 });
+
+
+test('attribution banner is hidden even when a stale option says enabled', () => {
+  mount({ banner: true, bannerPlatform: 'twitch', bannerHandle: 'xqc' });
+  expect(screen.queryByText('Attribution banner')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Configure Attribution banner' })).toBeNull();
+});
