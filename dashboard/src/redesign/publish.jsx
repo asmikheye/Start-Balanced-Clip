@@ -101,7 +101,13 @@ export function PublishModal({ clips, jobId, clipStates = {}, preselections, sou
   // Guard the post-publish setTimeout so it never calls setState after the
   // modal has been unmounted (e.g. parent closes it while the delay is in flight).
   const mountedRef = useRef(true);
-  useEffect(() => () => { mountedRef.current = false; }, []);
+  useEffect(() => {
+    // React StrictMode intentionally runs effect -> cleanup -> effect again in
+    // development. Reset the guard on every effect setup so a successful
+    // publish can still advance uploading -> done after that probe cycle.
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   const accounts = zernio?.accounts || {};
   const toggle = (k) => setPlats((p) => ({ ...p, [k]: !p[k] }));
@@ -109,6 +115,12 @@ export function PublishModal({ clips, jobId, clipStates = {}, preselections, sou
     .filter((k) => plats[k] && accounts[PLAT[k].acct])
     .map((k) => ({ platform: PLAT[k].platform, accountId: accounts[PLAT[k].acct] }));
   const targets = platTargets();
+  const activePlats = Object.fromEntries(
+    Object.keys(PLAT).map((key) => [
+      key,
+      !!(plats[key] && accounts[PLAT[key].acct]),
+    ]),
+  );
   const ready = zernio?.configured && targets.length > 0;
   const accountIds = targets.map((target) => target.accountId);
 
@@ -301,7 +313,7 @@ export function PublishModal({ clips, jobId, clipStates = {}, preselections, sou
         {stage === 'uploading' && (
           <div className="modal-body">
             <div className="pubgrid">
-              {clips.map((c) => <PubRow key={c._idx} clip={c} idx={c._idx} st={progress[c._idx]} plats={plats} mode={runMode} />)}
+              {clips.map((c) => <PubRow key={c._idx} clip={c} idx={c._idx} st={progress[c._idx]} plats={activePlats} mode={runMode} />)}
             </div>
           </div>
         )}
@@ -315,7 +327,7 @@ export function PublishModal({ clips, jobId, clipStates = {}, preselections, sou
             <p style={{ color: 'var(--fg-3)', fontSize: 13.5, marginTop: 8, lineHeight: 1.5 }}>
               {outcome.fail ? `${outcome.fail} clips were not published. Wait if Zernio imposed a cooldown, then retry them.` : runMode === 'queue' ? 'The fixed-slot schedule is saved in Zernio. This computer can now be turned off.' : 'Sent to Zernio for immediate publishing.'}
             </p>
-            {outcome.fail > 0 && <div className="pubgrid" style={{ marginTop: 18, textAlign: 'left' }}>{clips.filter((c) => ['error', 'paused'].includes(progress[c._idx]?.state)).map((c) => <PubRow key={c._idx} clip={c} idx={c._idx} st={progress[c._idx]} plats={plats} mode={runMode} />)}</div>}
+            {outcome.fail > 0 && <div className="pubgrid" style={{ marginTop: 18, textAlign: 'left' }}>{clips.filter((c) => ['error', 'paused'].includes(progress[c._idx]?.state)).map((c) => <PubRow key={c._idx} clip={c} idx={c._idx} st={progress[c._idx]} plats={activePlats} mode={runMode} />)}</div>}
             <div style={{ marginTop: 22, display: 'flex', justifyContent: 'center', gap: 10 }}>
               {outcome.fail > 0 && <Btn variant="grad" onClick={() => run(runMode, true)}>Retry failed</Btn>}
               <Btn variant="secondary" onClick={onClose}>Done</Btn>
