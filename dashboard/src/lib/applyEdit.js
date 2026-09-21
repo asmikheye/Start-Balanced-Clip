@@ -10,9 +10,11 @@ export async function runApplyEdit({ jobId, idx, apiIdx = idx, params, api, upda
   const reframeChanged = reframeMode !== baseMode;
   const anyCompose = !!(toggles.smartcut || toggles.subtitles || toggles.hook || toggles.logo || toggles.grade || toggles.banner);
 
-  // Persist the user's choices + flip the card into its processing state up
-  // front (so the badge/preview already reflect the new reframe mode).
-  updateClipState(idx, { reframeMode, toggles, subtitleParams, hookParams, logoParams, gradeParams, bannerParams, dropRanges,
+  // Persist staged layer choices + processing state immediately, but DO NOT
+  // claim a new reframe mode until the backend has actually rendered it.
+  // Older code optimistically stored reframeMode here; a failed Director call
+  // then poisoned localStorage and future edits thought Director was already on disk.
+  updateClipState(idx, { toggles, subtitleParams, hookParams, logoParams, gradeParams, bannerParams, dropRanges,
     processing: reframeChanged || anyCompose });
 
   if (!reframeChanged && !anyCompose) {
@@ -27,7 +29,12 @@ export async function runApplyEdit({ jobId, idx, apiIdx = idx, params, api, upda
       reframeApplied = true;
       // Reframe overwrites the clip on disk → bust the cache + drop any stale
       // composed preview so the card re-fetches the freshly framed clip.
-      updateClipState(idx, { reframeBust: now(), previewUrl: undefined });
+      updateClipState(idx, {
+        reframeMode,
+        reframeConfirmed: true,
+        reframeBust: now(),
+        previewUrl: undefined,
+      });
     }
     if (anyCompose) {
       const { composed_url } = await api.composeClip(jobId, apiIdx, {
@@ -56,7 +63,7 @@ export async function runApplyEdit({ jobId, idx, apiIdx = idx, params, api, upda
     // The reframe request itself failed, so the on-disk clip is still in
     // baseMode. Roll the optimistic badge/state back as well; otherwise a
     // failed Director request can masquerade as a successful one in the grid.
-    updateClipState(idx, { reframeMode: baseMode, processing: false });
+    updateClipState(idx, { reframeMode: baseMode, reframeConfirmed: true, processing: false });
     pushToast('error', err?.status === 409
       ? `Clip ${idx + 1} is too old to reframe — reprocess the video first.`
       : `Clip ${idx + 1} reprocess failed: ` + String(err?.message || err).slice(0, 50));
