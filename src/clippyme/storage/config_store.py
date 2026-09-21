@@ -22,6 +22,8 @@ VALID_CONFIG_KEYS = (
     "TWITCH_CLIENT_SECRET",
 )
 ZERNIO_CONFIG_NAMESPACE = "zernio"
+DEFAULT_ZERNIO_TIMEZONE = "Europe/Istanbul"
+_LEGACY_ZERNIO_TIMEZONES = {"Europe/Rome"}
 _CONFIG_LOCK = threading.RLock()
 
 
@@ -98,10 +100,16 @@ def load_zernio_config() -> dict:
     if not isinstance(zernio, dict):
         zernio = {}
     accounts = zernio.get("accounts", {})
+    timezone = str(zernio.get("timezone") or DEFAULT_ZERNIO_TIMEZONE).strip()
+    # This private ClippyMe install previously used Europe/Rome (+02 in
+    # September). Treat that legacy setting as Istanbul for NEW posts only.
+    # No Zernio post is mutated here; existing schedules stay untouched.
+    if timezone in _LEGACY_ZERNIO_TIMEZONES:
+        timezone = DEFAULT_ZERNIO_TIMEZONE
     return {
         "api_key": zernio.get("api_key", ""),
         "accounts": accounts if isinstance(accounts, dict) else {},
-        "timezone": zernio.get("timezone", "Europe/Rome"),
+        "timezone": timezone,
     }
 
 
@@ -141,7 +149,7 @@ def zernio_config_status() -> dict:
         "configured": bool(api_key),
         "api_key_masked": masked,
         "accounts": cfg.get("accounts", {}),
-        "timezone": cfg.get("timezone", "Europe/Rome"),
+        "timezone": cfg.get("timezone", DEFAULT_ZERNIO_TIMEZONE),
     }
 
 
