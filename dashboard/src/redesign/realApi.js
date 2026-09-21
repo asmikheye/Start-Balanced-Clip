@@ -42,6 +42,9 @@ export function clipPreviewSrc(clip, state) {
     const b = state.previewBust;
     return b ? `${full}${full.includes('?') ? '&' : '?'}v=${b}` : full;
   }
+  if (!state?.useRawPreview && clip?.initial_composed_url) {
+    return safeResolveUrl(clip.initial_composed_url);
+  }
   return clipVideoSrc(clip, state?.reframeBust);
 }
 
