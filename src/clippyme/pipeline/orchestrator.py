@@ -148,7 +148,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--no-zoom", action="store_true")
     parser.add_argument(
         "--reframe-mode",
-        choices=["auto", "disabled", "subject", "object"],
+        choices=["auto", "director", "disabled", "subject", "object"],
         default="auto",
     )
     parser.add_argument("--letterbox-zoom", type=float, default=0.0)
@@ -551,6 +551,28 @@ def _render_one_clip(
             os.remove(temp_output)
         except FileNotFoundError:
             pass
+        director_words = None
+        if args.reframe_mode == "director":
+            from clippyme.pipeline.director_camera import extract_clip_diarized_words
+            director_words = extract_clip_diarized_words(
+                clips_data.get("transcript"),
+                start,
+                end,
+            )
+            if director_words:
+                speaker_count = len({word["speaker"] for word in director_words})
+                print(
+                    f"🎬 Director clip {index + 1}: {speaker_count} speaker(s), "
+                    f"{len(director_words)} diarized word(s)",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"⚠️ Director clip {index + 1}: no diarization labels; "
+                    "using visual active-speaker fallback",
+                    flush=True,
+                )
+
         success = legacy.process_video_to_vertical(
             clip_source,
             temp_output,
@@ -558,6 +580,7 @@ def _render_one_clip(
             zoom_end=None if args.no_zoom else 1.05,
             aspect_ratio=aspect_ratio,
             letterbox_zoom=normalize_letterbox_zoom(args.letterbox_zoom),
+            director_words=director_words,
         )
         if not success or not _valid_file(temp_output, 10_000):
             last_report = {
