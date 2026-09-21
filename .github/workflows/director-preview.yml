@@ -29,7 +29,7 @@ jobs:
           src/clippyme/domain/reframe_service.py
           src/clippyme/api/app.py
       - name: Director unit tests
-        run: python -m pytest -q tests/pipeline/test_director_camera.py tests/api/test_reframe_director_mode.py
+        run: python -m pytest -q tests/pipeline/test_director_camera.py tests/pipeline/test_orchestrator_director.py tests/api/test_reframe_director_mode.py
 
   frontend-director:
     runs-on: ubuntu-latest
