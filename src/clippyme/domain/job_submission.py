@@ -42,6 +42,7 @@ async def submit_job(
     on_change=None,
     cleanup_paths=(),
     input_path: str | None = None,
+    create_subtitles: dict | None = None,
 ) -> None:
     """Register and enqueue a job, rolling every artefact back on queue-full."""
     max_attempts = configured_max_attempts()
@@ -61,6 +62,7 @@ async def submit_job(
         "env": env,
         "output_dir": job_output_dir,
         "input_path": input_path,
+        "create_subtitles": dict(create_subtitles or {}),
         "result": {"clips": [], **runtime_result_fields(job_output_dir)},
         "attempt": 0,
         "max_attempts": max_attempts,
