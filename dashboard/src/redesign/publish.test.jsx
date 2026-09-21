@@ -149,7 +149,7 @@ test('YouTube-only publish renders only the actual target platform', async () =>
     jobId="job-yt" onClose={vi.fn()}
   />);
 
-  const shorts = await screen.findByRole('button', { name: 'Shorts' });
+  const shorts = await screen.findByRole('button', { name: /Shorts/ });
   expect(shorts.getAttribute('aria-pressed')).toBe('false');
   fireEvent.click(shorts);
   fireEvent.click(screen.getByRole('button', { name: 'Publish Now' }));
