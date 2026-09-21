@@ -3,7 +3,7 @@
 // the same endpoints with the same contracts.
 // Explicit .js extensions: plain Node (npm test / node --test) resolves ESM
 // strictly, and Vite accepts the explicit form unchanged.
-import { getApiUrl } from '../config.js';
+import { getApiUrl, ATTRIBUTION_BANNER_ENABLED } from '../config.js';
 import { apiFetch } from '../lib/apiToken.js';
 import { seedToggles, seedHookParams, seedSubtitleParams, seedLogoParams, seedBannerParams } from '../lib/seedClipParams.js';
 import { clipDownloadName } from '../lib/clipFilename.js';
@@ -121,7 +121,7 @@ export async function getClipTranscript(jobId, index) {
 // is active for it, otherwise grabbing the raw clip. Shared by the per-clip
 // download button and bulk export. Returns 'composed' | 'raw'.
 export async function exportClip(jobId, index, clip, state, preselections) {
-  const toggles = state?.toggles ?? seedToggles(preselections);
+  const toggles = { ...(state?.toggles ?? seedToggles(preselections)), banner: ATTRIBUTION_BANNER_ENABLED && !!(state?.toggles ?? seedToggles(preselections)).banner };
   const any = Object.values(toggles || {}).some(Boolean);
   if (!any) { downloadClip(clip, index); return 'raw'; }
   const hook = state?.hookParams ?? seedHookParams(clip, preselections);
@@ -472,7 +472,7 @@ export function optsToPreselections(opts) {
     // yet at Create time, so this is just the user's manual choice — the
     // per-job auto-suggestion (source_info.banner) only prefills the Edit
     // modal once a job has actually run.
-    banner: opts.banner
+    banner: ATTRIBUTION_BANNER_ENABLED && opts.banner
       ? { enabled: true, platform: opts.bannerPlatform || 'kick', handle: opts.bannerHandle || '', y_pct: opts.bannerYPct ?? 0.85 }
       : false,
   };
