@@ -99,14 +99,16 @@ test('duplicate monitor (409) shows a warning toast', async () => {
   await waitFor(() => expect(pushToast).toHaveBeenCalledWith('warn', expect.stringMatching(/already monitoring/i)));
 });
 
-test('banner defaults to Auto and sends null', async () => {
+test('attribution banner is hidden and monitor payload forces it off', async () => {
   const { startLiveMonitor } = await import('./realApi');
   render(<LiveMonitorView />);
+  expect(screen.queryByText('Attribution banner')).toBeNull();
+  expect(screen.queryByLabelText('Banner handle')).toBeNull();
   fireEvent.change(screen.getByLabelText('Channel'), { target: { value: 'xqc' } });
   await waitFor(() => expect(screen.getByRole('button', { name: /Start monitor/ })).not.toBeDisabled());
   fireEvent.click(screen.getByRole('button', { name: /Start monitor/ }));
   await waitFor(() => expect(startLiveMonitor).toHaveBeenCalled());
-  expect(startLiveMonitor.mock.calls[0][0].banner).toBeNull();
+  expect(startLiveMonitor.mock.calls[0][0].banner).toEqual({ enabled: false });
 });
 
 test('AI instructions field is included in the start payload', async () => {
@@ -118,31 +120,6 @@ test('AI instructions field is included in the start payload', async () => {
   fireEvent.click(screen.getByRole('button', { name: /Start monitor/ }));
   await waitFor(() => expect(startLiveMonitor).toHaveBeenCalled());
   expect(startLiveMonitor.mock.calls[0][0].instructions).toBe('find the funniest bits');
-});
-
-test('banner Off sends {enabled:false}', async () => {
-  const { startLiveMonitor } = await import('./realApi');
-  render(<LiveMonitorView />);
-  fireEvent.click(screen.getByRole('button', { name: 'Off' }));
-  fireEvent.change(screen.getByLabelText('Channel'), { target: { value: 'xqc' } });
-  await waitFor(() => expect(screen.getByRole('button', { name: /Start monitor/ })).not.toBeDisabled());
-  fireEvent.click(screen.getByRole('button', { name: /Start monitor/ }));
-  await waitFor(() => expect(startLiveMonitor).toHaveBeenCalled());
-  expect(startLiveMonitor.mock.calls[0][0].banner).toEqual({ enabled: false });
-});
-
-test('banner Custom reveals platform+handle and sends the override', async () => {
-  const { startLiveMonitor } = await import('./realApi');
-  render(<LiveMonitorView />);
-  fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
-  const twitchBtns = screen.getAllByRole('button', { name: 'Twitch' });
-  fireEvent.click(twitchBtns[twitchBtns.length - 1]); // the banner drawer's platform picker
-  fireEvent.change(screen.getByLabelText('Banner handle'), { target: { value: 'xqc' } });
-  fireEvent.change(screen.getByLabelText('Channel'), { target: { value: 'xqc' } });
-  await waitFor(() => expect(screen.getByRole('button', { name: /Start monitor/ })).not.toBeDisabled());
-  fireEvent.click(screen.getByRole('button', { name: /Start monitor/ }));
-  await waitFor(() => expect(startLiveMonitor).toHaveBeenCalled());
-  expect(startLiveMonitor.mock.calls[0][0].banner).toEqual({ platform: 'twitch', handle: 'xqc', y_pct: 0.85 });
 });
 
 test('catchup select value rides the start payload', async () => {
