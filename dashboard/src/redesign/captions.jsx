@@ -28,6 +28,7 @@ import {
 import {
   seedSubtitleParams, seedHookParams, seedLogoParams, seedGradeParams, seedBannerParams,
 } from '../lib/seedClipParams';
+import { ATTRIBUTION_BANNER_ENABLED } from '../config';
 
 // Pull the IG-style hook style keys out of a flat hookParams object.
 const HOOK_STYLE_KEYS = ['bg_enabled', 'bg_color', 'bg_opacity', 'text_color', 'outline_width', 'outline_color', 'font'];
@@ -57,7 +58,7 @@ export function EditClipModal({ clip, idx, jobId, initial, appliedMode, preselec
   const [subsOn, setSubsOn] = useState(t0.subtitles ?? !!pre.subtitles);
   const [hookOn, setHookOn] = useState(t0.hook ?? !!pre.hook);
   const [logoOn, setLogoOn] = useState(t0.logo ?? !!pre.logo);
-  const [bannerOn, setBannerOn] = useState(t0.banner ?? !!(pre.banner || sourceBanner));
+  const [bannerOn, setBannerOn] = useState(ATTRIBUTION_BANNER_ENABLED && (t0.banner ?? !!(pre.banner || sourceBanner)));
 
   const lp0 = initial?.logoParams || seedLogoParams(preselections);
   const [logo, setLogo] = useState(() => ({
@@ -130,7 +131,7 @@ export function EditClipModal({ clip, idx, jobId, initial, appliedMode, preselec
     !bulk && { id: 'trim', label: 'Trim', icon: 'baseline' },
     { id: 'logo', label: 'Logo', icon: 'stamp' },
     { id: 'grade', label: 'Grade', icon: 'palette' },
-    { id: 'banner', label: 'Banner', icon: 'rss' },
+    ATTRIBUTION_BANNER_ENABLED && { id: 'banner', label: 'Banner', icon: 'rss' },
   ].filter(Boolean);
 
   const gradeOn = gradePreset && gradePreset !== 'none';
@@ -138,7 +139,7 @@ export function EditClipModal({ clip, idx, jobId, initial, appliedMode, preselec
   // Manual trim must run the Smart Cut compose stage (drop_ranges only apply
   // inside _apply_smartcut backend-side), so dropping text implies smartcut.
   const effSmartcut = smartcut || hasDrops;
-  const anyCompose = effSmartcut || subsOn || hookOn || logoOn || gradeOn || bannerOn;
+  const anyCompose = effSmartcut || subsOn || hookOn || logoOn || gradeOn || (ATTRIBUTION_BANNER_ENABLED && bannerOn);
   const willReprocess = reframeChanged || anyCompose;
 
   // Non-blocking apply: seed the full param shape the compose backend expects,
@@ -158,8 +159,11 @@ export function EditClipModal({ clip, idx, jobId, initial, appliedMode, preselec
     const hookParams = { ...seedHookParams(clip, preselections), ...(initial?.hookParams || {}), ...hookStyle, text: hookText };
     const logoParams = { position: logo.position, size: logo.size };
     const gradeParams = { preset: gradePreset };
-    const bannerParams = { enabled: bannerOn, platform: banner.platform, handle: banner.handle, y_pct: banner.y_pct };
-    const toggles = { smartcut: effSmartcut, subtitles: subsOn, hook: hookOn, logo: logoOn, grade: gradeOn, banner: bannerOn };
+    const bannerParams = ATTRIBUTION_BANNER_ENABLED
+      ? { enabled: bannerOn, platform: banner.platform, handle: banner.handle, y_pct: banner.y_pct }
+      : { enabled: false, platform: 'kick', handle: '', y_pct: 0.85 };
+    const toggles = { smartcut: effSmartcut, subtitles: subsOn, hook: hookOn, logo: logoOn, grade: gradeOn,
+      banner: ATTRIBUTION_BANNER_ENABLED && bannerOn };
     onApply({ reframeMode, baseMode, toggles, subtitleParams, hookParams, logoParams, gradeParams, bannerParams,
       dropRanges: effSmartcut ? dropRanges : [] });
   };
@@ -218,7 +222,7 @@ export function EditClipModal({ clip, idx, jobId, initial, appliedMode, preselec
                 onChange={(partial) => setLogo((l) => ({ ...l, ...partial }))} />
             )}
             {tab === 'grade' && <GradeTab preset={gradePreset} onChange={setGradePreset} />}
-            {tab === 'banner' && (
+            {ATTRIBUTION_BANNER_ENABLED && tab === 'banner' && (
               <BannerTab on={bannerOn} onToggle={setBannerOn} banner={banner}
                 onChange={(partial) => setBanner((b) => ({ ...b, ...partial }))} />
             )}
