@@ -16,6 +16,9 @@ from clippyme.domain.errors import ValidationError
 
 logger = logging.getLogger(__name__)
 
+# Banner code is intentionally kept, but the feature is globally disabled.
+ATTRIBUTION_BANNER_ENABLED = False
+
 from clippyme.domain.smartcut import smart_cut
 from clippyme.domain.subtitles import generate_ass_karaoke, generate_srt, burn_subtitles
 
@@ -451,10 +454,11 @@ async def _compose_layers_impl(
     drop_ranges=None,
 ) -> str:
     active = {k: v for k, v in toggles.items() if v}
-    # The banner can be enabled via its own params.enabled (frontend convention)
-    # without a toggles entry — fold it in so the no-active short-circuit and the
-    # downstream active.get('banner') check both see it.
-    if (banner_params or {}).get("enabled"):
+    if not ATTRIBUTION_BANNER_ENABLED:
+        active.pop("banner", None)
+    # The banner implementation stays in place for a future re-enable, but while
+    # the feature flag is off even stale clients/state cannot reactivate it.
+    elif (banner_params or {}).get("enabled"):
         active["banner"] = True
     logger.info(
         "compose_layers: clip_index=%d active=%s hook_text_len=%d subtitle_mode=%s",
@@ -611,7 +615,7 @@ async def _compose_layers_impl(
         # is not trivial, and correctness > one saved encode generation.
         from clippyme.domain.banner import banner_text
         bp = banner_params or {}
-        banner_active = bool(active.get("banner") or bp.get("enabled"))
+        banner_active = ATTRIBUTION_BANNER_ENABLED and bool(active.get("banner") or bp.get("enabled"))
         if banner_active and not banner_text(bp.get("platform"), bp.get("handle")):
             logger.warning(
                 "compose_layers: banner enabled but platform/handle didn't "
