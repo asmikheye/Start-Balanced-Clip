@@ -4,7 +4,7 @@ social_publisher — publish/schedule clips to social platforms via Zernio.
 Provides:
 - ZernioClient: minimal REST client (no third-party SDK), uses requests
 - SmartScheduler: optimal-slot picker with anti-collision (replicates the
-  Italian-prime-time logic from the user-provided reference script)
+  prime-time scheduling logic from the user-provided reference script)
 - publish_clip(): high-level orchestrator used by the FastAPI endpoint
 
 Three scheduling modes are supported:
@@ -114,7 +114,7 @@ def _reject_internal_upload_url(url: str) -> None:
 
 
 ZERNIO_BASE_URL = _safe_zernio_base_url()
-DEFAULT_TIMEZONE = os.environ.get("ZERNIO_DEFAULT_TZ", "Europe/Rome")
+DEFAULT_TIMEZONE = os.environ.get("ZERNIO_DEFAULT_TZ", "Europe/Istanbul")
 HTTP_TIMEOUT_SECONDS = int(os.environ.get("ZERNIO_HTTP_TIMEOUT", "60"))
 UPLOAD_TIMEOUT_SECONDS = int(os.environ.get("ZERNIO_UPLOAD_TIMEOUT", "600"))
 
@@ -125,7 +125,7 @@ def _load_timezone(name: str) -> ZoneInfo:
     except (ZoneInfoNotFoundError, ValueError) as exc:
         raise ValueError(f"unknown timezone: {name!r}") from exc
 
-# Italian-prime-time slots (CET/CEST), tuned for TikTok / Reels / Shorts.
+# Prime-time windows, interpreted in the configured queue timezone (default GMT+3).
 # weekday → list of (hour_start, hour_end) windows. Same data as the user's
 # reference script.
 DEFAULT_SLOT_WINDOWS: dict[int, list[tuple[int, int]]] = {
