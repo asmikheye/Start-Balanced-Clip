@@ -60,6 +60,7 @@ from clippyme.pipeline.transcribe_cache import (  # noqa: E402
     get_cache_path as _get_cache_path,
     load_cached_transcript as _load_cached_transcript,
     save_transcript_cache as _save_transcript_cache,
+    transcript_has_words as _transcript_has_words,
 )
 # Device + Whisper-model selection live in a shared module so transcription and
 # reframe can import them without depending on main.
@@ -296,8 +297,14 @@ def transcribe_video(video_path):
     try:
         if provider == "deepgram":
             try:
-                from clippyme.pipeline.deepgram_transcribe import transcribe_with_deepgram, DeepgramError
-                return transcribe_with_deepgram(asr_input)
+                from clippyme.pipeline.deepgram_transcribe import transcribe_with_deepgram
+                deepgram_result = transcribe_with_deepgram(asr_input)
+                if _transcript_has_words(deepgram_result):
+                    return deepgram_result
+                logging.getLogger("clippyme").warning(
+                    "Deepgram returned an empty transcript — falling back to Faster-Whisper"
+                )
+                print("⚠️  Deepgram returned no words; falling back to Faster-Whisper.")
             except Exception as exc:  # noqa: BLE001 — broad catch for safe fallback
                 logging.getLogger("clippyme").warning(
                     "Deepgram transcription failed (%s) — falling back to Faster-Whisper", exc

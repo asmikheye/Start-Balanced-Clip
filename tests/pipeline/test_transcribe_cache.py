@@ -28,7 +28,13 @@ def test_load_missing_returns_none(tmp_cache):
 
 
 def test_round_trip(tmp_cache):
-    payload = {"segments": [{"text": "hi", "start": 0, "end": 1}], "language": "en"}
+    payload = {
+        "segments": [{
+            "text": "hi", "start": 0, "end": 1,
+            "words": [{"word": "hi", "start": 0, "end": 1}],
+        }],
+        "language": "en",
+    }
     tc.save_transcript_cache("https://youtu.be/abc", payload)
     loaded = tc.load_cached_transcript("https://youtu.be/abc")
     assert loaded == payload
@@ -36,7 +42,9 @@ def test_round_trip(tmp_cache):
 
 def test_expired_entry_is_pruned(tmp_cache):
     url = "https://youtu.be/old"
-    tc.save_transcript_cache(url, {"x": 1})
+    tc.save_transcript_cache(url, {
+        "segments": [{"words": [{"word": "old", "start": 0, "end": 1}]}]
+    })
     path = tc.get_cache_path(url)
     # Backdate beyond the TTL.
     old = time.time() - (tc.CACHE_TTL_DAYS + 1) * 86400
@@ -55,6 +63,34 @@ def test_corrupt_cache_returns_none(tmp_cache):
 
 def test_save_is_atomic_no_tmp_left(tmp_cache):
     url = "https://youtu.be/atomic"
-    tc.save_transcript_cache(url, {"ok": True})
+    payload = {
+        "segments": [{"words": [{"word": "ok", "start": 0, "end": 1}]}]
+    }
+    tc.save_transcript_cache(url, payload)
     assert not os.path.exists(tc.get_cache_path(url) + ".tmp")
-    assert json.load(open(tc.get_cache_path(url), encoding="utf-8")) == {"ok": True}
+    assert json.load(open(tc.get_cache_path(url), encoding="utf-8")) == payload
+
+
+
+def test_empty_transcript_is_not_cached(tmp_cache):
+    url = "https://youtu.be/empty"
+    tc.save_transcript_cache(url, {"text": "", "segments": [], "language": "unknown"})
+    assert not os.path.exists(tc.get_cache_path(url))
+
+
+def test_existing_empty_transcript_cache_is_pruned(tmp_cache):
+    url = "https://youtu.be/stale-empty"
+    os.makedirs(str(tmp_cache), exist_ok=True)
+    path = tc.get_cache_path(url)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"text": "", "segments": [], "language": "unknown"}, f)
+    assert tc.load_cached_transcript(url) is None
+    assert not os.path.exists(path)
+
+
+def test_transcript_has_words_requires_real_asr_words():
+    assert tc.transcript_has_words({"segments": []}) is False
+    assert tc.transcript_has_words({"segments": [{"text": "hello", "words": []}]}) is False
+    assert tc.transcript_has_words({
+        "segments": [{"words": [{"word": "hello", "start": 0, "end": 1}]}]
+    }) is True

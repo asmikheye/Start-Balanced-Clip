@@ -36,10 +36,11 @@ from clippyme.pipeline.run_ops import (
     clip_output_basename,
     resolve_output_dir,
     sanitize_windows_basename,
-    should_use_fallback,
 )
 
 logger = logging.getLogger("clippyme")
+from clippyme.pipeline.transcribe_cache import transcript_has_words
+
 _FALSE_VALUES = {"0", "false", "no", "off"}
 
 
@@ -323,20 +324,22 @@ def _load_or_transcribe(args, input_video: str, state: RuntimeState, legacy):
         return transcript
     if state.completed("transcribing"):
         transcript = _load_json(transcript_path)
-        if transcript and isinstance(transcript.get("segments"), list):
+        if transcript_has_words(transcript):
             print("♻️ Resume: reusing transcript checkpoint", flush=True)
             return transcript
+        if transcript:
+            print("⚠️ Resume: empty transcript checkpoint ignored; retranscribing", flush=True)
 
     state.start("transcribing", "transcribing speech")
     # A trimmed source has its own timeline, so it needs its own cache slot —
     # otherwise a later run with a different skip reuses shifted timestamps.
     cache_key = _transcript_cache_key(args)
     transcript = legacy._load_cached_transcript(cache_key) if cache_key else None
-    if transcript:
+    if transcript_has_words(transcript):
         print("♻️ Reusing shared URL transcript cache", flush=True)
     else:
         transcript = legacy.transcribe_video(input_video)
-        if cache_key:
+        if cache_key and transcript_has_words(transcript):
             legacy._save_transcript_cache(cache_key, transcript)
     if not isinstance(transcript, dict):
         raise RuntimeError("transcription returned no structured result")
@@ -344,7 +347,7 @@ def _load_or_transcribe(args, input_video: str, state: RuntimeState, legacy):
     state.complete_stage(
         "transcribing",
         artifacts={"transcript": transcript_path},
-        detail="transcript ready",
+        detail="transcript ready" if transcript_has_words(transcript) else "no speech detected",
     )
     return transcript
 
@@ -393,20 +396,16 @@ def _load_or_analyze(
             duration,
             instructions=args.instructions,
         )
-        if not clips_data or "shorts" not in clips_data:
-            if should_use_fallback(args.monitor):
-                clips_data = legacy.build_texttiling_fallback(transcript, video_title)
+        # TextTiling/whole-video fallback is intentionally disabled for normal
+        # AI analysis. An empty transcript or exhausted Gemini should produce
+        # zero clips, not a misleading heuristic/full-video render.
         if not clips_data or not clips_data.get("shorts"):
-            if not should_use_fallback(args.monitor):
-                clips_data = {
-                    "shorts": [],
-                    "gemini_exhausted": bool(
-                        getattr(legacy.get_viral_clips, "_last_gemini_exhausted", False)
-                    ),
-                }
-            else:
-                print("⚠️ No valid AI/topic clips; using whole-video fallback", flush=True)
-                clips_data = _whole_video_fallback(video_title, duration)
+            clips_data = {
+                "shorts": [],
+                "gemini_exhausted": bool(
+                    getattr(legacy.get_viral_clips, "_last_gemini_exhausted", False)
+                ),
+            }
 
     clips_data["transcript"] = transcript
     clips_data["aspect"] = args.aspect
