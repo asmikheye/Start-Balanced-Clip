@@ -112,3 +112,42 @@ def test_dispatcher_shutdown_cancels_and_awaits_active_jobs(tmp_path):
         assert semaphore._value == 1
 
     asyncio.run(scenario())
+
+
+def test_harmless_mediapipe_noise_is_hidden_from_user_log():
+    payload = (
+        b"INFO: Created TensorFlow Lite XNNPACK delegate for CPU.\n"
+        b"WARNING: All log messages before absl::InitializeLog() is called are written to STDERR\n"
+        b"W0000 00:00:1 2 inference_feedback_manager.cc:114] "
+        b"Feedback manager requires a model with a single signature inference. "
+        b"Disabling support for feedback tensors.\n"
+        b"Director still running\n"
+    )
+    jobs = _run(payload)
+    assert jobs["j"]["logs"] == ["Director still running"]
+
+
+def test_tqdm_carriage_return_progress_spam_is_hidden():
+    # tqdm rewrites one terminal row with carriage returns. Once stdout is
+    # piped, readline can receive the whole 0..100% sequence as one giant row.
+    payload = (
+        b"Processing: 0%| | 0/100 [00:00<?, ?it/s]\r"
+        b"Processing: 50%|##### | 50/100 [00:01<00:01, 40it/s]\r"
+        b"Processing: 100%|##########| 100/100 [00:02<00:00, 40it/s]\n"
+        b"Step 5: Extracting audio\n"
+    )
+    jobs = _run(payload)
+    assert jobs["j"]["logs"] == ["Step 5: Extracting audio"]
+
+
+def test_real_failures_are_not_hidden():
+    jobs = _run(
+        b"ERROR ffmpeg failed\n"
+        b"Traceback: render exploded\n"
+        b"Initial subtitle compose failed: bad filter\n"
+    )
+    assert jobs["j"]["logs"] == [
+        "ERROR ffmpeg failed",
+        "Traceback: render exploded",
+        "Initial subtitle compose failed: bad filter",
+    ]
