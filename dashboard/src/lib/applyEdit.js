@@ -53,7 +53,10 @@ export async function runApplyEdit({ jobId, idx, apiIdx = idx, params, api, upda
       pushToast('error', `Clip ${idx + 1}: reframed, but composing the layers failed.`);
       return;
     }
-    updateClipState(idx, { processing: false });
+    // The reframe request itself failed, so the on-disk clip is still in
+    // baseMode. Roll the optimistic badge/state back as well; otherwise a
+    // failed Director request can masquerade as a successful one in the grid.
+    updateClipState(idx, { reframeMode: baseMode, processing: false });
     pushToast('error', err?.status === 409
       ? `Clip ${idx + 1} is too old to reframe — reprocess the video first.`
       : `Clip ${idx + 1} reprocess failed: ` + String(err?.message || err).slice(0, 50));
