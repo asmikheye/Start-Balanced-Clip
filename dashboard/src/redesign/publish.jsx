@@ -65,6 +65,10 @@ function automaticShowId(sourceInfo, jobId) {
   return String(source || jobId).trim().toLowerCase().replace(/[^\p{L}\p{N}._-]+/gu, '-').replace(/^-+|-+$/g, '').slice(0, 64) || jobId;
 }
 
+function queueItemId(showId, clip) {
+  return `${showId}:${clip._apiIdx ?? clip._idx}`;
+}
+
 function publishError(error) {
   const raw = error?.message || 'Publish failed';
   if (!/(?:http\s*)?429|rate[- ]?limit/i.test(raw)) return { message: raw, rateLimited: false };
@@ -111,7 +115,6 @@ export function PublishModal({ clips, jobId, clipStates = {}, preselections, sou
   const buildBody = (clip, idx, mode = 'now', assignment = null) => {
     const cs = clipStates[idx] || {};
     const toggles = cs.toggles ?? seedToggles(preselections);
-    const any = Object.values(toggles).some(Boolean);
     const hookParams = cs.hookParams ?? seedHookParams(clip, preselections);
     const subtitleParams = cs.subtitleParams ?? seedSubtitleParams(preselections);
     const logoParams = cs.logoParams ?? seedLogoParams(preselections);
@@ -133,7 +136,18 @@ export function PublishModal({ clips, jobId, clipStates = {}, preselections, sou
         privacy_level: 'PUBLIC_TO_EVERYONE', allow_comment: true, allow_duet: true,
         allow_stitch: true, content_preview_confirmed: true, express_consent_given: true,
       } : undefined,
-      ...(any ? { compose_first: true, toggles, hook_params: toggles.hook ? hookParams : {}, subtitle_params: toggles.subtitles ? subtitleParams : {}, logo_params: toggles.logo ? logoParams : {}, grade_params: toggles.grade ? gradeParams : {}, banner_params: toggles.banner ? bannerParams : {}, drop_ranges: toggles.smartcut ? (cs.dropRanges || []) : [] } : {}),
+      // Always resolve the CURRENT edit state before upload. If every toggle
+      // is off, compose_layers returns the base clip without rendering; this
+      // also prevents a stale composed file from an older edit session being
+      // uploaded accidentally.
+      compose_first: true,
+      toggles,
+      hook_params: toggles.hook ? hookParams : {},
+      subtitle_params: toggles.subtitles ? subtitleParams : {},
+      logo_params: toggles.logo ? logoParams : {},
+      grade_params: toggles.grade ? gradeParams : {},
+      banner_params: toggles.banner ? bannerParams : {},
+      drop_ranges: toggles.smartcut ? (cs.dropRanges || []) : [],
     };
   };
 
@@ -152,7 +166,7 @@ export function PublishModal({ clips, jobId, clipStates = {}, preselections, sou
     if (mode === 'queue') {
       try {
         const incoming = pending.map(({ clip }) => ({
-          id: `${jobId}:${clip._apiIdx ?? clip._idx}`,
+          id: queueItemId(showId, clip),
           show_id: showId,
         }));
         const plan = await planQueue(accountIds, incoming);
@@ -167,7 +181,7 @@ export function PublishModal({ clips, jobId, clipStates = {}, preselections, sou
           && new Date(move.expected_scheduled_for).getTime() !== new Date(move.scheduled_for).getTime());
         await applyQueueMoves(accountIds, moves);
         for (const duplicate of duplicateIds) {
-          const clip = pending.find(({ clip: value }) => `${jobId}:${value._apiIdx ?? value._idx}` === duplicate)?.clip;
+          const clip = pending.find(({ clip: value }) => queueItemId(showId, value) === duplicate)?.clip;
           if (clip) {
             setProgress((p) => ({ ...p, [clip._idx]: { state: 'done' } }));
             ok += 1;
@@ -190,7 +204,7 @@ export function PublishModal({ clips, jobId, clipStates = {}, preselections, sou
       // publish call — `idx` (array position) stays the key into local
       // clipStates/progress, which are unaffected by a manual-publish gap.
       const apiIdx = clip._apiIdx ?? idx;
-      const itemId = `${jobId}:${apiIdx}`;
+      const itemId = queueItemId(showId, clip);
       const assignment = assignmentById.get(itemId);
       if (mode === 'queue' && !assignment) {
         if (duplicateIds.has(itemId)) continue;
@@ -213,7 +227,7 @@ export function PublishModal({ clips, jobId, clipStates = {}, preselections, sou
         // produces the same failure and can extend the provider cooldown.
         if (failure.rateLimited) {
           const remaining = pending.slice(pendingIndex + 1).filter(({ clip: value }) => {
-            const id = `${jobId}:${value._apiIdx ?? value._idx}`;
+            const id = queueItemId(showId, value);
             return assignmentById.has(id) && !duplicateIds.has(id);
           });
           setProgress((p) => {
@@ -233,7 +247,7 @@ export function PublishModal({ clips, jobId, clipStates = {}, preselections, sou
   };
 
   const title = stage === 'done' ? (outcome.fail ? 'Publishing incomplete' : runMode === 'queue' ? 'Queue updated' : 'Sent to Zernio')
-    : all ? `Queue ${clips.length} clips` : `Queue · ${clips[0]?.video_title_for_youtube_short || ''}`;
+    : all ? `Publish ${clips.length} clips` : `Publish · ${clips[0]?.video_title_for_youtube_short || ''}`;
 
   return (
     // Backdrop click is a mouse-only convenience; keyboard users close via
@@ -275,8 +289,10 @@ export function PublishModal({ clips, jobId, clipStates = {}, preselections, sou
             </div>
             <div className="modal-foot">
               <div className="mf-right">
+                <Btn variant="secondary" icon="send" disabled={!ready}
+                  onClick={() => run('now')}>Publish Now</Btn>
                 <Btn variant="grad" icon="calendar-clock" disabled={!ready}
-                  onClick={() => run('queue')}>Queue</Btn>
+                  onClick={() => run('queue')}>Publish in Prime Time</Btn>
               </div>
             </div>
           </>
