@@ -110,3 +110,53 @@ def test_restore_original_index_survives_deleted_after_publish_gap(tmp_path):
     clips = entry["result"]["clips"]
     assert len(clips) == 2
     assert [c["original_index"] for c in clips] == [0, 2]
+
+
+def test_restore_exposes_create_composed_preview_when_file_exists(tmp_path):
+    job_id = "77777777-7777-7777-7777-777777777777"
+    job_dir = os.path.join(str(tmp_path), job_id)
+    os.makedirs(job_dir)
+    base_name = f"{job_id}_clip_1.mp4"
+    composed_name = "captioned-result.mp4"
+    shorts = [{
+        "clip_filename": base_name,
+        "video_title_for_youtube_short": "captioned result",
+        "composed_filename": composed_name,
+        "last_compose": {
+            "toggles": {"subtitles": True},
+            "subtitle_params": {"preset": "fire_impact", "mode": "karaoke", "font_size": 54},
+        },
+    }]
+    with open(os.path.join(job_dir, f"{job_id}_metadata.json"), "w") as f:
+        json.dump({"shorts": shorts}, f)
+    with open(os.path.join(job_dir, base_name), "wb") as f:
+        f.write(b"raw")
+    with open(os.path.join(job_dir, composed_name), "wb") as f:
+        f.write(b"captioned")
+
+    entry = restore_job_from_disk(job_id, str(tmp_path), job_dir)
+    clip = entry["result"]["clips"][0]
+
+    assert clip["video_url"] == f"/videos/{job_id}/{base_name}"
+    assert clip["initial_composed_url"] == f"/videos/{job_id}/{composed_name}"
+    assert clip["last_compose"]["subtitle_params"]["preset"] == "fire_impact"
+
+
+def test_restore_ignores_missing_composed_preview(tmp_path):
+    job_id = "88888888-8888-8888-8888-888888888888"
+    job_dir = os.path.join(str(tmp_path), job_id)
+    os.makedirs(job_dir)
+    base_name = f"{job_id}_clip_1.mp4"
+    shorts = [{
+        "clip_filename": base_name,
+        "composed_filename": "missing-captioned.mp4",
+    }]
+    with open(os.path.join(job_dir, f"{job_id}_metadata.json"), "w") as f:
+        json.dump({"shorts": shorts}, f)
+    with open(os.path.join(job_dir, base_name), "wb") as f:
+        f.write(b"raw")
+
+    entry = restore_job_from_disk(job_id, str(tmp_path), job_dir)
+    clip = entry["result"]["clips"][0]
+
+    assert "initial_composed_url" not in clip
