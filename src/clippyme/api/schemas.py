@@ -316,7 +316,7 @@ class PublishRequest(BaseModel):
     banner_params: Optional[dict] = None
     drop_ranges: Optional[list] = None
     queue_show_id: Optional[str] = Field(None, min_length=1, max_length=64)
-    queue_item_id: Optional[str] = Field(None, min_length=1, max_length=120, pattern=r"^[A-Za-z0-9._:\-]+$")
+    queue_item_id: Optional[str] = Field(None, min_length=1, max_length=120)
 
     @field_validator("timezone")
     @classmethod
@@ -331,6 +331,18 @@ class PublishRequest(BaseModel):
         normalized = value.strip().casefold()
         if not normalized:
             raise ValueError("queue_show_id cannot be blank")
+        return normalized
+
+    @field_validator("queue_item_id")
+    @classmethod
+    def _normalize_queue_item(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("queue_item_id cannot be blank")
+        if any(ord(ch) < 32 or ord(ch) == 127 for ch in normalized):
+            raise ValueError("queue_item_id must not contain control characters")
         return normalized
 
     @field_validator("scheduled_for")
