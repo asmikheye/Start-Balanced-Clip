@@ -12,7 +12,7 @@ const ClipCard = memo(function ClipCard({ clip, index, jobId, state, preselectio
   const [downloading, setDownloading] = useState(false);
   const selected = state?.selected !== false;
   const score = Math.round(clip.viral_score || 0);
-  const mode = state?.reframeMode || clip.reframe_mode || 'auto';
+  const mode = (state?.reframeConfirmed ? state?.reframeMode : null) || clip.reframe_mode || 'auto';
   const title = clip.video_title_for_youtube_short || `Clip ${index + 1}`;
   const processing = !!state?.processing;
   const selectionProps = selectMode ? {
