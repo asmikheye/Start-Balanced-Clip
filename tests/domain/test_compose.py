@@ -216,7 +216,7 @@ def _run_compose_banner(tmp_path, *, toggles, banner_params, reframe_mode=None):
     )
 
 
-def test_banner_runs_last_after_hook(tmp_path, monkeypatch):
+def test_banner_is_ignored_when_feature_disabled(tmp_path, monkeypatch):
     order = []
     _install_recording_stubs(monkeypatch, order)
     _install_banner_stub(monkeypatch, order)
@@ -226,14 +226,12 @@ def test_banner_runs_last_after_hook(tmp_path, monkeypatch):
         banner_params={"enabled": True, "platform": "kick", "handle": "grenbaud"},
     )
     steps = [o for o in order if isinstance(o, str)]
-    assert steps == ["hook", "banner"]  # banner is topmost, after hook
+    assert steps == ["hook"]
+    assert "banner" not in order
     assert result == "composed_clip_0.mp4"
 
 
-def test_banner_enabled_via_params_only_no_toggle(tmp_path, monkeypatch):
-    # enabled lives in banner_params (frontend convention) with NO toggles entry;
-    # compose must still run the banner layer (and not short-circuit on empty
-    # toggles).
+def test_banner_params_only_cannot_reactivate_disabled_feature(tmp_path, monkeypatch):
     order = []
     _install_recording_stubs(monkeypatch, order)
     _install_banner_stub(monkeypatch, order)
@@ -242,21 +240,20 @@ def test_banner_enabled_via_params_only_no_toggle(tmp_path, monkeypatch):
         toggles={},
         banner_params={"enabled": True, "platform": "youtube", "handle": "chan"},
     )
-    assert "banner" in order
-    assert result == "composed_clip_0.mp4"
+    assert "banner" not in order
+    assert result == "clip_0.mp4"
 
 
-def test_banner_skipped_when_handle_unresolvable(tmp_path, monkeypatch):
+def test_banner_code_still_works_if_feature_flag_is_reenabled(tmp_path, monkeypatch):
+    monkeypatch.setattr(compose, "ATTRIBUTION_BANNER_ENABLED", True)
     order = []
     _install_recording_stubs(monkeypatch, order)
     _install_banner_stub(monkeypatch, order)
     result = _run_compose_banner(
         tmp_path,
-        toggles={"banner": True},
-        banner_params={"enabled": True, "platform": "kick"},  # no handle
+        toggles={"hook": True, "banner": True},
+        banner_params={"enabled": True, "platform": "kick", "handle": "grenbaud"},
     )
-    # Banner layer skipped (unresolvable), but the banner toggle counts as
-    # active, so a composed copy of the base is still emitted for a consistent
-    # return path.
-    assert "banner" not in order
+    steps = [o for o in order if isinstance(o, str)]
+    assert steps == ["hook", "banner"]
     assert result == "composed_clip_0.mp4"
