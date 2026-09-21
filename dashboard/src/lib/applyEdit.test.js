@@ -171,7 +171,6 @@ test('failed reframe rolls optimistic mode back to baseMode', async () => {
     pushToast: (type, msg) => toasts.push({ type, msg }),
     now: () => 123,
   });
-  assert.equal(updates.at(-1).reframeMode, 'auto');
-  assert.equal(updates.at(-1).processing, false);
-  assert.equal(toasts.at(-1).type, 'error');
+  expect(updates.at(-1)).toMatchObject({ reframeMode: 'auto', processing: false });
+  expect(toasts.at(-1).type).toBe('error');
 });
