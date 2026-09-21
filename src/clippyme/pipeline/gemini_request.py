@@ -178,9 +178,9 @@ reaction to a specific named person (in video_title_for_youtube_short,
 viral_hook_text or viral_reason) UNLESS that exact name is EXPLICITLY spoken in
 the transcript words of THAT clip. Any name listed only in the user context/
 instructions does NOT count as evidence of who is speaking. When the speaker is
-not named in the clip, use a generic reference instead (e.g. "un concorrente",
-"uno di loro", "in villa", "chi parla") — never guess. A wrong name is far worse
-than no name.
+not named in the clip, use a generic reference instead (e.g. "a contestant",
+"one of them", "in the room", "the speaker") translated naturally into the
+transcript's language — never guess. A wrong name is far worse than no name.
 ONE EXCEPTION: when a CHANNEL OWNER is given in VIDEO METADATA, that name may be
 the SUBJECT of a title/hook (whose stream this is, what happened on it) — but
 still never the source of a specific quote or opinion unless it is spoken in the
@@ -254,15 +254,15 @@ easily-corrected detail. NEVER misstate a fact about a real person, health,
 money-making or news: that is misinformation, not bait.
 
 ## FEW-SHOT EXAMPLES
-GOOD TITLES (engagement-first, grounded in what the clip shows):
+GOOD TITLES (engagement-first, grounded in what the clip shows; rewrite into the transcript language):
   clip: the streamer digs up a collectible and says it is worth about 10k
-  video_title_for_youtube_short="Dopo un cimelio da 10k può anche smettere di fare live"   ← speculative consequence, not stated as fact
-  video_title_for_youtube_short="Ne ha trovato uno da 10.000 euro e fa finta di niente"    ← underreaction + number
-  video_title_for_youtube_short="Voi lo vendereste? Io manco per idea"                     ← splits the comments
+  video_title_for_youtube_short="After a 10k find, could they actually quit?"   ← speculative consequence, not stated as fact
+  video_title_for_youtube_short="Finds a 10,000 piece and barely reacts"         ← underreaction + number
+  video_title_for_youtube_short="Would you sell it? I wouldn't"                  ← splits the comments
 BAD TITLES:
-  "Il momento in cui trova la moneta"     ← summary, no bait, no reason to comment
-  "NON CREDERAI MAI A COSA TROVA 😱😱"    ← caps + generic clickbait, zero information
-  "Ha annunciato che chiude il canale"    ← invented fact, contradicts the clip
+  "The moment they find the coin"          ← summary, no bait, no reason to comment
+  "YOU WON'T BELIEVE WHAT THEY FIND 😱😱" ← caps + generic clickbait, zero information
+  "They announced they are quitting"       ← invented fact, contradicts the clip
 
 GOOD (score 87):
   start=12.340 end=37.900
