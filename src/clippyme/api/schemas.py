@@ -95,6 +95,15 @@ class ProcessRequest(BaseModel):
     model: Optional[str] = Field(
         None, max_length=72, pattern=r"^gemini-[A-Za-z0-9.\-]{1,64}$"
     )
+    # Create-time subtitle recipe. Unlike Edit/Export composition this travels
+    # with the job so a result marked completed already has the requested
+    # captions rendered. None/{} means captions are not auto-applied.
+    create_subtitles: Optional[dict] = None
+
+    @field_validator("create_subtitles")
+    @classmethod
+    def _bound_create_subtitles(cls, value):
+        return _validate_overlay_params(value)
 
     @field_validator("url")
     @classmethod
@@ -123,6 +132,12 @@ class BatchRequest(BaseModel):
     model: Optional[str] = Field(
         None, max_length=72, pattern=r"^gemini-[A-Za-z0-9.\-]{1,64}$"
     )
+    create_subtitles: Optional[dict] = None
+
+    @field_validator("create_subtitles")
+    @classmethod
+    def _bound_create_subtitles(cls, value):
+        return _validate_overlay_params(value)
 
     @field_validator("urls")
     @classmethod
