@@ -96,6 +96,28 @@ def restore_job_from_disk(job_id: str, output_dir: str, job_dir: str) -> dict:
         # downstream consumers (publish, smartcut, compose) never have to
         # defensively split on `?` again.
         clip["video_url"] = f"/videos/{job_id}/{clip_filename}"
+
+        # Keep History restore byte-for-byte consistent with normal Results:
+        # Create-time subtitles are rendered into a separate composed file and
+        # metadata stores its basename in composed_filename. Without exposing
+        # initial_composed_url here, reopening a job from History silently
+        # falls back to the raw clip and makes the captions appear "gone".
+        composed = clip.get("composed_filename")
+        if (
+            isinstance(composed, str)
+            and composed
+            and "/" not in composed
+            and "\\" not in composed
+            and ".." not in composed
+        ):
+            composed_path = os.path.join(job_dir, composed)
+            if os.path.exists(composed_path) and os.path.getsize(composed_path) > 0:
+                clip["initial_composed_url"] = f"/videos/{job_id}/{composed}"
+            else:
+                clip.pop("initial_composed_url", None)
+        else:
+            clip.pop("initial_composed_url", None)
+
         clip["original_index"] = i
         present.append(clip)
 
