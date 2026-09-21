@@ -159,6 +159,24 @@ def test_prompt_bans_mechanical_engagement_bait():
     assert "TITLE & CAPTION COPY" in prompt
 
 
+def test_prompt_keeps_generated_metadata_in_transcript_language():
+    prompt, _ = build_viral_prompt(TRANSCRIPT, 60)
+    assert "LANGUAGE RULE (HARD)" in prompt
+    assert "Infer the transcript language ONLY from TRANSCRIPT SEGMENTS" in prompt
+    assert "NEVER copy their language" in prompt
+    # The old Italian-heavy examples were strong enough to pull Russian
+    # transcripts into Italian metadata, especially on Flash Lite.
+    for leaked in (
+        "Dopo questo",
+        "Quanto pensate",
+        "Voi lo vendereste",
+        "un concorrente",
+        'in Italian always',
+        "NON CREDERAI MAI",
+    ):
+        assert leaked not in prompt
+
+
 # --- retry classification / backoff --------------------------------------------
 
 @pytest.mark.parametrize("msg", [
