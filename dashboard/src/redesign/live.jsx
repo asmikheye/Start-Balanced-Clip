@@ -14,6 +14,7 @@ import { BannerControls } from './bannerControls';
 import { SubtitleControls } from './subtitleControls';
 import { useLiveMonitorStatus } from '../hooks/useLiveMonitorStatus';
 import { relTime } from '../lib/relTime';
+import { ATTRIBUTION_BANNER_ENABLED } from '../config';
 
 // SubtitleControls is fully controlled with no built-in defaults (see
 // subtitleControls.jsx) — this is the same default set create.jsx's
@@ -324,7 +325,9 @@ export function LiveMonitorView({ pushToast }) {
         caption_template: captionTemplate,
         title_template: titleTemplate,
         instructions,
-        banner: buildMonitorBannerPayload(bannerMode, { platform: bannerPlatform, handle: bannerHandle, y_pct: bannerYPct }),
+        banner: ATTRIBUTION_BANNER_ENABLED
+          ? buildMonitorBannerPayload(bannerMode, { platform: bannerPlatform, handle: bannerHandle, y_pct: bannerYPct })
+          : { enabled: false },
         ...(subOn ? { compose: { subtitle_params: toComposeSubtitleParams(sub) } } : {}),
       });
       pushToast?.('success', `Monitoring ${slug.trim()}…`);
@@ -503,25 +506,27 @@ export function LiveMonitorView({ pushToast }) {
           <Switch on={smartCut} label="Smart cut" onChange={setSmartCut} />
         </div>
 
-        <div className="field">
-          <span className="field-label">Attribution banner</span>
-          <Segmented full value={bannerMode} onChange={setBannerMode}
-            options={[
-              { id: 'auto', label: `Auto (${PLATFORM_LABEL[platform]} + channel)` },
-              { id: 'off', label: 'Off' },
-              { id: 'custom', label: 'Custom' },
-            ]} />
-          {bannerMode === 'custom' && (
-            <div className="cfg-drawer fade-in" style={{ marginTop: 10 }}>
-              <BannerControls value={{ platform: bannerPlatform, handle: bannerHandle, y_pct: bannerYPct }}
-                onChange={(partial) => {
-                  if (partial.platform !== undefined) setBannerPlatform(partial.platform);
-                  if (partial.handle !== undefined) setBannerHandle(partial.handle);
-                  if (partial.y_pct !== undefined) setBannerYPct(partial.y_pct);
-                }} />
-            </div>
-          )}
-        </div>
+        {ATTRIBUTION_BANNER_ENABLED && (
+          <div className="field">
+            <span className="field-label">Attribution banner</span>
+            <Segmented full value={bannerMode} onChange={setBannerMode}
+              options={[
+                { id: 'auto', label: `Auto (${PLATFORM_LABEL[platform]} + channel)` },
+                { id: 'off', label: 'Off' },
+                { id: 'custom', label: 'Custom' },
+              ]} />
+            {bannerMode === 'custom' && (
+              <div className="cfg-drawer fade-in" style={{ marginTop: 10 }}>
+                <BannerControls value={{ platform: bannerPlatform, handle: bannerHandle, y_pct: bannerYPct }}
+                  onChange={(partial) => {
+                    if (partial.platform !== undefined) setBannerPlatform(partial.platform);
+                    if (partial.handle !== undefined) setBannerHandle(partial.handle);
+                    if (partial.y_pct !== undefined) setBannerYPct(partial.y_pct);
+                  }} />
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="opt" style={{ borderBottom: 0 }}>
           <div className="otxt"><div className="ot">Subtitles (customize)</div><div className="od">Leave off to use server defaults</div></div>
