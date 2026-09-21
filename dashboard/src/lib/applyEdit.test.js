@@ -174,3 +174,36 @@ test('failed reframe rolls optimistic mode back to baseMode', async () => {
   expect(updates.at(-1)).toMatchObject({ reframeMode: 'auto', processing: false });
   expect(toasts.at(-1).type).toBe('error');
 });
+
+
+test('successful reframe confirms mode only after backend returns', async () => {
+  const updates = [];
+  let resolveReframe;
+  const pending = new Promise((resolve) => { resolveReframe = resolve; });
+  const task = runApplyEdit({
+    jobId: 'job-1',
+    idx: 0,
+    params: {
+      reframeMode: 'director', baseMode: 'auto',
+      toggles: {}, subtitleParams: {}, hookParams: {}, logoParams: {},
+      gradeParams: {}, bannerParams: {}, dropRanges: [],
+    },
+    api: {
+      reframeClip: async () => { await pending; return { success: true, reframe_mode: 'director' }; },
+      composeClip: async () => ({ composed_url: '/unused.mp4' }),
+    },
+    updateClipState: (_idx, patch) => updates.push(patch),
+    pushToast: () => {},
+    now: () => 123,
+  });
+
+  await Promise.resolve();
+  assert.equal(updates[0].reframeMode, undefined);
+  assert.equal(updates[0].processing, true);
+
+  resolveReframe();
+  await task;
+  const confirmed = updates.find((patch) => patch.reframeConfirmed === true && patch.reframeMode === 'director');
+  assert.ok(confirmed);
+  assert.equal(confirmed.reframeBust, 123);
+});
