@@ -163,3 +163,22 @@ test('bulk mode hides the Trim tab and the hook text field, dropRanges stay empt
   expect(p.toggles.hook).toBe(true);
   expect(p.dropRanges).toEqual([]);
 });
+
+
+test('banner tab stays hidden and stale banner state is forced off', () => {
+  const { onApply } = mount({
+    initial: {
+      toggles: { banner: true },
+      bannerParams: { enabled: true, platform: 'youtube', handle: 'old-channel', y_pct: 0.8 },
+    },
+    sourceBanner: { platform: 'youtube', handle: 'source-channel' },
+    preselections: { banner: { enabled: true, platform: 'twitch', handle: 'saved' } },
+  });
+  expect(screen.queryByRole('tab', { name: 'Banner' })).toBeNull();
+  expect(screen.queryByText('Attribution banner')).toBeNull();
+  fireEvent.click(applyBtn());
+  const p = onApply.mock.calls[0][0];
+  expect(p.toggles.banner).toBe(false);
+  expect(p.bannerParams.enabled).toBe(false);
+  expect(p.bannerParams.handle).toBe('');
+});
