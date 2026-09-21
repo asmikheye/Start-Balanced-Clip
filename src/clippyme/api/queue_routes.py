@@ -100,6 +100,17 @@ def _snapshot(client: ZernioClient, selected: set[str]) -> list[dict]:
     return sorted(result, key=lambda item: item["scheduled_for"])
 
 
+def _queue_identity(show_id: str | None, queue_item_id: str | None) -> str | None:
+    """Return stable episode+clip identity for current and legacy queue items."""
+    show = str(show_id or "").strip().casefold()
+    raw = str(queue_item_id or "").strip()
+    if not raw:
+        return None
+    _prefix, sep, suffix = raw.rpartition(":")
+    if show and sep and suffix.isdigit():
+        return f"{show}:{int(suffix)}"
+    return raw
+
 class Scope(BaseModel):
     account_ids: list[str] = Field(min_length=1, max_length=14)
 
@@ -162,17 +173,31 @@ def plan_queue(body: PlanRequest, request: Request):
     client, config = _client_and_config()
     selected = _selected_ids(body.account_ids, config)
     posts = _snapshot(client, selected)
-    known_items = {post["queue_item_id"] for post in posts if post.get("queue_item_id")}
-    incoming = [{**item.model_dump(), "show_id": item.show_id.strip().casefold()}
-                for item in body.incoming if item.id not in known_items]
+    known_items = {
+        identity
+        for post in posts
+        if (identity := _queue_identity(post.get("show_id"), post.get("queue_item_id")))
+    }
+    normalized_incoming = [
+        {**item.model_dump(), "show_id": item.show_id.strip().casefold()}
+        for item in body.incoming
+    ]
+    incoming = [
+        item for item in normalized_incoming
+        if _queue_identity(item["show_id"], item["id"]) not in known_items
+    ]
     timezone = config.get("timezone") or "Europe/Istanbul"
     try:
         assignments = plan_fixed_queue(posts, incoming, now=datetime.now(ZoneInfo(timezone)),
                                        timezone=timezone, lock_depth=2)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
+    duplicates = sorted(
+        item["id"] for item in normalized_incoming
+        if _queue_identity(item["show_id"], item["id"]) in known_items
+    )
     return {"assignments": assignments, "posts": posts, "timezone": timezone,
-            "duplicates": sorted(known_items.intersection(item.id for item in body.incoming))}
+            "duplicates": duplicates}
 
 
 def _parse_timestamp(value: str, timezone: str) -> datetime:
@@ -200,7 +225,10 @@ def _apply_queue_moves_locked(body: ApplyRequest):
     now = datetime.now(ZoneInfo(timezone))
     posts = _snapshot(client, selected)
     by_id = {post["id"]: post for post in posts}
-    future = [post for post in posts if _parse_timestamp(post["scheduled_for"], timezone) > now]
+    future = sorted(
+        (post for post in posts if _parse_timestamp(post["scheduled_for"], timezone) > now),
+        key=lambda post: _parse_timestamp(post["scheduled_for"], timezone),
+    )
     protected_ids = {post["id"] for post in future[:2]}
     targets = set()
     originals = {}
