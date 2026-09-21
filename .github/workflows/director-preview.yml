@@ -27,8 +27,9 @@ jobs:
           src/clippyme/api/schemas.py
           src/clippyme/domain/job_results.py
           src/clippyme/domain/reframe_service.py
+          src/clippyme/api/app.py
       - name: Director unit tests
-        run: python -m pytest -q tests/pipeline/test_director_camera.py
+        run: python -m pytest -q tests/pipeline/test_director_camera.py tests/api/test_reframe_director_mode.py
 
   frontend-director:
     runs-on: ubuntu-latest
@@ -45,4 +46,4 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
       - name: Director UI tests
-        run: npx vitest run src/lib/pipelineStep.test.js src/redesign/realApi.test.js
+        run: npx vitest run src/lib/pipelineStep.test.js src/redesign/realApi.test.js src/lib/applyEdit.test.js
