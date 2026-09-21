@@ -42,6 +42,12 @@ export function clipPreviewSrc(clip, state) {
     const b = state.previewBust;
     return b ? `${full}${full.includes('?') ? '&' : '?'}v=${b}` : full;
   }
+  // A Create-time caption burn is a separate artifact so the clean base clip
+  // stays editable. Explicitly disabling/reframing layers sets useRawPreview
+  // and reveals that clean base again.
+  if (!state?.useRawPreview && clip?.create_composed_url) {
+    return safeResolveUrl(clip.create_composed_url);
+  }
   return clipVideoSrc(clip, state?.reframeBust);
 }
 
