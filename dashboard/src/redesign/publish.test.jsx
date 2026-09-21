@@ -1,4 +1,5 @@
-import { test, expect, vi } from 'vitest';
+import { test, expect, vi, beforeEach } from 'vitest';
+import { StrictMode } from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { PublishModal } from './publish';
 
@@ -9,14 +10,25 @@ const planQueue = vi.hoisted(() => vi.fn(async (_accounts, incoming) => ({
   })),
 })));
 const applyQueueMoves = vi.hoisted(() => vi.fn(async () => ({ moved: 0 })));
+const getZernio = vi.hoisted(() => vi.fn());
 
 vi.mock('./realApi', () => ({
   clipVideoSrc: () => '',
   publishClip,
-  getZernio: async () => ({ configured: true, accounts: { tiktok: 'tk', instagram: 'ig' } }),
+  getZernio,
   planQueue, applyQueueMoves,
 }));
 vi.mock('./LazyVideo', () => ({ LazyVideo: () => null }));
+
+beforeEach(() => {
+  publishClip.mockReset().mockResolvedValue({ success: true });
+  getZernio.mockReset().mockResolvedValue({
+    configured: true,
+    accounts: { tiktok: 'tk', instagram: 'ig' },
+  });
+  planQueue.mockClear();
+  applyQueueMoves.mockClear();
+});
 
 test('Prime Time hides Caption and schedules each clip in its assigned fixed slot', async () => {
   publishClip.mockClear();
@@ -124,4 +136,50 @@ test('Publish Now sends schedule_mode=now and current edit state', async () => {
     smartcut: false, hook: false, subtitles: false,
     logo: false, grade: false, banner: false,
   });
+});
+
+
+test('YouTube-only publish renders only the actual target platform', async () => {
+  getZernio.mockReset().mockResolvedValue({
+    configured: true,
+    accounts: { youtube: 'yt-only' },
+  });
+  const { container } = render(<PublishModal
+    clips={[{ _idx: 0, video_title_for_youtube_short: 'YT only' }]}
+    jobId="job-yt" onClose={vi.fn()}
+  />);
+
+  const shorts = await screen.findByRole('button', { name: 'Shorts' });
+  expect(shorts.getAttribute('aria-pressed')).toBe('false');
+  fireEvent.click(shorts);
+  fireEvent.click(screen.getByRole('button', { name: 'Publish Now' }));
+
+  await waitFor(() => expect(publishClip).toHaveBeenCalledTimes(1));
+  expect(publishClip.mock.calls[0][2].platforms).toEqual([
+    { platform: 'youtube', accountId: 'yt-only' },
+  ]);
+  expect(container.querySelectorAll('.pplats .pp')).toHaveLength(1);
+  expect(container.querySelector('.pplats i.yt')).toBeTruthy();
+  expect(container.querySelector('.pplats i.tiktok')).toBeNull();
+  expect(container.querySelector('.pplats i.ig')).toBeNull();
+});
+
+test('successful publish exits uploading and Close works under React StrictMode', async () => {
+  const onClose = vi.fn();
+  render(
+    <StrictMode>
+      <PublishModal
+        clips={[{ _idx: 0, video_title_for_youtube_short: 'Strict clip' }]}
+        jobId="job-strict" onClose={onClose}
+      />
+    </StrictMode>,
+  );
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Publish Now' }));
+  expect(await screen.findByText('1/1 clips sent')).toBeTruthy();
+
+  const close = screen.getByRole('button', { name: 'Close' });
+  expect(close).not.toBeDisabled();
+  fireEvent.click(close);
+  expect(onClose).toHaveBeenCalledTimes(1);
 });
