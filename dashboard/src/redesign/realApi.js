@@ -121,8 +121,12 @@ export async function getClipTranscript(jobId, index) {
 // is active for it, otherwise grabbing the raw clip. Shared by the per-clip
 // download button and bulk export. Returns 'composed' | 'raw'.
 export async function exportClip(jobId, index, clip, state, preselections) {
-  const toggles = { ...(state?.toggles ?? seedToggles(preselections)), banner: ATTRIBUTION_BANNER_ENABLED && !!(state?.toggles ?? seedToggles(preselections)).banner };
-  const any = Object.values(toggles || {}).some(Boolean);
+  const baseToggles = state?.toggles ?? seedToggles(preselections);
+  const toggles = {
+    ...baseToggles,
+    banner: ATTRIBUTION_BANNER_ENABLED && !!baseToggles.banner,
+  };
+  const any = Object.values(toggles).some(Boolean);
   if (!any) { downloadClip(clip, index); return 'raw'; }
   const hook = state?.hookParams ?? seedHookParams(clip, preselections);
   const subs = state?.subtitleParams ?? seedSubtitleParams(preselections);
