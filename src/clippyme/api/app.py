@@ -1,6 +1,7 @@
 import os
 import sys
 import uuid
+import json
 import shutil
 import asyncio
 import logging
@@ -319,6 +320,7 @@ async def process_endpoint(
     no_zoom = False
     skip_analysis = False
     model = None
+    create_subtitles = None
     content_type = request.headers.get("content-type", "")
     if "application/json" in content_type:
         try:
@@ -337,6 +339,7 @@ async def process_endpoint(
         no_zoom = bool(validated.no_zoom)
         skip_analysis = bool(validated.skip_analysis)
         model = validated.model
+        create_subtitles = validated.create_subtitles
 
     # For multipart/form-data uploads, extract reframe_mode + language from form fields
     if "multipart/form-data" in content_type:
@@ -352,11 +355,17 @@ async def process_endpoint(
         no_zoom = str(form.get("no_zoom", "")).lower() in {"1", "true", "yes"} or no_zoom
         skip_analysis = str(form.get("skip_analysis", "")).lower() in {"1", "true", "yes"} or skip_analysis
         model = form.get("model", model) or None
+        raw_create_subtitles = form.get("create_subtitles")
+        if raw_create_subtitles:
+            try:
+                create_subtitles = json.loads(str(raw_create_subtitles))
+            except (TypeError, ValueError, json.JSONDecodeError) as exc:
+                raise HTTPException(status_code=400, detail="Invalid create_subtitles JSON") from exc
         # Validate the multipart values through the same schema for
         # consistency — we drop the url requirement since we're using
         # an uploaded file path.
         try:
-            ProcessRequest.model_validate({
+            validated_upload = ProcessRequest.model_validate({
                 "url": "https://upload.invalid/local",
                 "reframe_mode": reframe_mode or None,
                 "letterbox_zoom": letterbox_zoom or None,
@@ -366,7 +375,9 @@ async def process_endpoint(
                 "no_zoom": no_zoom,
                 "skip_analysis": skip_analysis,
                 "model": model or None,
+                "create_subtitles": create_subtitles,
             })
+            create_subtitles = validated_upload.create_subtitles
         except ValidationError as exc:
             raise HTTPException(status_code=400, detail=exc.errors())
 
@@ -444,6 +455,7 @@ async def process_endpoint(
         jobs=jobs, job_queue=job_queue, job_id=job_id,
         cmd=cmd, env=env, job_output_dir=job_output_dir,
         on_change=persist_jobs, cleanup_paths=(input_path,), input_path=input_path,
+        create_subtitles=create_subtitles,
     )
 
     return {"job_id": job_id, "status": "queued"}
@@ -498,6 +510,7 @@ async def batch_process(req: BatchRequest, request: Request):
                 jobs=jobs, job_queue=job_queue, job_id=job_id,
                 cmd=cmd, env=env, job_output_dir=job_output_dir, batch=True,
                 on_change=persist_jobs,
+                create_subtitles=req.create_subtitles,
             )
             batch_jobs.append({"url": url, "job_id": job_id})
         except QueueFullError:
@@ -557,376 +570,3 @@ async def pause_job(job_id: str, request: Request):
     proc = job.get('process')
     if not (proc and proc.poll() is None):
         raise HTTPException(status_code=409, detail="Job has no running process")
-
-    n = await asyncio.to_thread(job_control.suspend_tree, proc.pid)
-    job['status'] = 'paused'
-    job['logs'].append(f"Job paused by user ({n} process(es) suspended).")
-    logger.info("Job %s paused (%d procs)", job_id, n)
-    persist_jobs()
-    return {"success": True, "status": "paused"}
-
-
-@app.post("/api/resume/{job_id}")
-async def resume_job(job_id: str, request: Request):
-    """Resume a paused job's process tree."""
-    require_trusted_config_request(request)
-    if not is_valid_job_id(job_id):
-        raise HTTPException(status_code=400, detail="Invalid job ID")
-    if job_id not in jobs:
-        raise HTTPException(status_code=404, detail="Job not found")
-
-    job = jobs[job_id]
-    if not job_control.can_resume(job['status']):
-        raise HTTPException(status_code=400, detail="Job is not paused")
-
-    proc = job.get('process')
-    if not (proc and proc.poll() is None):
-        raise HTTPException(status_code=409, detail="Job has no running process")
-
-    n = await asyncio.to_thread(job_control.resume_tree, proc.pid)
-    job['status'] = 'processing'
-    job['logs'].append(f"Job resumed by user ({n} process(es) resumed).")
-    logger.info("Job %s resumed (%d procs)", job_id, n)
-    persist_jobs()
-    return {"success": True, "status": "processing"}
-
-
-@app.post("/api/stop/{job_id}")
-async def stop_job(job_id: str, request: Request):
-    """Graceful stop: kill the subprocess but KEEP finished clips.
-
-    Unlike ``/api/cancel`` (hard discard), this promotes the partial result to
-    final so the user can still view/edit/publish the clips already rendered.
-    """
-    require_trusted_config_request(request)
-    if not is_valid_job_id(job_id):
-        raise HTTPException(status_code=400, detail="Invalid job ID")
-    if job_id not in jobs:
-        raise HTTPException(status_code=404, detail="Job not found")
-
-    try:
-        return await stop_job_action(job_id, jobs[job_id])
-    finally:
-        persist_jobs()
-
-@app.post("/api/smartcut/{job_id}/{clip_index}")
-async def smart_cut_clip(job_id: str, clip_index: int, request: Request):
-    """Generate a smart-cut version of a clip (silences + filler words removed)."""
-    require_trusted_config_request(request)
-    enforce_rate_limit(request, "smartcut", capacity=20, refill_per_sec=20 / 60)
-    if not is_valid_job_id(job_id):
-        raise HTTPException(status_code=400, detail="Invalid job ID")
-    if job_id not in jobs:
-        raise HTTPException(status_code=404, detail="Job not found")
-    resolved = await asyncio.to_thread(resolve_clip, job_id, clip_index, OUTPUT_DIR)
-    # Optional manual-trim spans (flycut-style interactive cut). Legacy callers
-    # POST no body — tolerate that and fall back to pure auto Smart Cut.
-    drop_ranges = None
-    raw_body = await request.body()
-    if raw_body:
-        try:
-            body = await request.json()
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail="Malformed JSON body") from exc
-        if not isinstance(body, dict):
-            raise HTTPException(status_code=422, detail="Request body must be a JSON object")
-        drop_ranges = body.get("drop_ranges")
-    # This raw-body path bypasses Pydantic, so apply the same bound check the
-    # ComposeRequest/PublishRequest schemas use — rejects an oversized or
-    # malformed list before the engine iterates it (DoS gate).
-    try:
-        _validate_drop_ranges(drop_ranges)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=f"Invalid drop_ranges: {exc}")
-    return await run_smart_cut(
-        job_id=job_id,
-        clip_index=clip_index,
-        resolved=resolved,
-        drop_ranges=drop_ranges,
-    )
-
-
-@app.get("/api/transcript/{job_id}/{clip_index}")
-async def clip_transcript(job_id: str, clip_index: int, request: Request):
-    """Per-clip transcript segments (clip-relative seconds) for the manual-trim
-    UI. Each segment is {index, text, start, end}; the frontend lets the user
-    mark segments to drop and posts the resulting spans as `drop_ranges`."""
-    require_trusted_config_request(request)
-    if not is_valid_job_id(job_id):
-        raise HTTPException(status_code=400, detail="Invalid job ID")
-    resolved = await asyncio.to_thread(
-        resolve_clip, job_id, clip_index, OUTPUT_DIR, require_file=False)
-    transcript = resolved.metadata.get("transcript") or {}
-    clip = resolved.clip_info
-    start, end = clip.get("start", 0), clip.get("end", 0)
-    from clippyme.domain.smartcut import clip_transcript_segments
-    segments = clip_transcript_segments(transcript, start, end)
-    return {
-        "segments": segments,
-        "duration": round(max(0.0, end - start), 3),
-        "language": transcript.get("language", "en"),
-    }
-
-
-@app.post("/api/edit-ai/{job_id}/{clip_index}")
-async def edit_clip_ai(
-    job_id: str,
-    clip_index: int,
-    req: EditAIRequest,
-    request: Request,
-    api_key: Optional[str] = Header(None, alias="X-Gemini-Key"),
-):
-    """Conversational clip trim: a plain-English instruction → Gemini → the
-    clip-relative spans to remove. The returned `drop_ranges` feed the SAME
-    manual-trim machinery as the tap-to-cut UI (compose / publish honour them)."""
-    require_trusted_config_request(request)
-    if not is_valid_job_id(job_id):
-        raise HTTPException(status_code=400, detail="Invalid job ID")
-    resolved = await asyncio.to_thread(
-        resolve_clip, job_id, clip_index, OUTPUT_DIR, require_file=False)
-    clip = resolved.clip_info
-    start, end = clip.get("start", 0), clip.get("end", 0)
-    duration = round(max(0.0, end - start), 3)
-
-    transcript = resolved.metadata.get("transcript") or {}
-    from clippyme.domain.smartcut import clip_transcript_segments
-    segments = clip_transcript_segments(transcript, start, end)
-
-    cfg = load_persistent_config() or {}
-    key = api_key or os.environ.get("GEMINI_API_KEY") or cfg.get("GEMINI_API_KEY")
-    model = req.model or cfg.get("GEMINI_MODEL") or "gemini-3.5-flash"
-    if not key:
-        raise HTTPException(status_code=400, detail="Gemini API key not configured")
-
-    from clippyme.domain.clip_edit_ai import suggest_drops
-    result = await asyncio.to_thread(
-        suggest_drops,
-        api_key=key,
-        model=model,
-        segments=segments,
-        instruction=req.instruction,
-        clip_duration=duration,
-    )
-    return {"drop_ranges": result["drops"], "explanation": result["explanation"]}
-
-
-@app.post("/api/reframe/{job_id}/{clip_index}")
-async def reframe_clip(job_id: str, clip_index: int, req: ReframeRequest, request: Request):
-    """Switch a clip between reframe modes (auto / director / subject / disabled) after generation.
-
-    Requires the per-clip 16:9 source slice (``source_<clip>.mp4``) to still
-    exist on disk. Spawns ``main.py --reframe-only`` as a subprocess to reuse
-    the exact same reframing / zoom / normalize / cover pipeline the initial
-    run used. Updates metadata.json and the in-memory job state so the
-    dashboard picks up the new video URL on the next poll.
-    """
-    require_trusted_config_request(request)
-    enforce_rate_limit(request, "reframe", capacity=20, refill_per_sec=20 / 60)
-    if not is_valid_job_id(job_id):
-        raise HTTPException(status_code=400, detail="Invalid job_id")
-    mode = (req.reframe_mode or "auto").strip().lower()
-    if mode not in ALLOWED_REFRAME_MODES:
-        allowed = ", ".join(sorted(ALLOWED_REFRAME_MODES))
-        raise HTTPException(status_code=400, detail=f"reframe_mode must be one of: {allowed}")
-    # 'object' is the legacy name for 'subject' — normalize so the subprocess
-    # argv + metadata are written with the canonical value.
-    mode = canonical_reframe_mode(mode)
-
-    # Everything from metadata resolution through the subprocess run lives in
-    # the domain helper (thin-handler rule); ClippyMeError subclasses raised
-    # there are mapped to HTTP responses by the app-level exception handler.
-    return await run_reframe(
-        job_id=job_id, clip_index=clip_index, mode=mode,
-        letterbox_zoom=req.letterbox_zoom,
-        output_root=OUTPUT_DIR, jobs=jobs,
-    )
-
-
-@app.get("/api/history")
-async def list_history(request: Request):
-    """Scan output/ for past jobs with metadata files."""
-    require_trusted_config_request(request)
-    return {"jobs": await asyncio.to_thread(scan_history, OUTPUT_DIR)}
-
-@app.delete("/api/history/{job_id}")
-async def delete_history(job_id: str, request: Request):
-    """Delete a job's output directory and all its files."""
-    require_trusted_config_request(request)
-    if not is_valid_job_id(job_id):
-        raise HTTPException(status_code=400, detail="Invalid job ID")
-    job = jobs.get(job_id)
-    if job is not None and not job_control.can_purge(job.get("status")):
-        raise HTTPException(
-            status_code=409,
-            detail="Active jobs must be stopped or cancelled before deletion",
-        )
-    job_dir = os.path.join(OUTPUT_DIR, job_id)
-    if os.path.islink(job_dir):
-        raise HTTPException(status_code=409, detail="Refusing to delete a symbolic link")
-    if not os.path.isdir(job_dir):
-        raise HTTPException(status_code=404, detail="Job not found on disk")
-    try:
-        await asyncio.to_thread(shutil.rmtree, job_dir)
-    except OSError as exc:
-        logger.error("Could not delete history directory %s", job_dir, exc_info=True)
-        raise HTTPException(status_code=500, detail="Could not delete job files") from exc
-    if job_id in jobs:
-        input_path = jobs[job_id].get("input_path")
-        del jobs[job_id]
-        if input_path:
-            try:
-                await asyncio.to_thread(os.remove, input_path)
-            except FileNotFoundError:
-                pass
-            except OSError:
-                logger.warning("Could not remove uploaded input %s", input_path, exc_info=True)
-        persist_jobs()
-    logger.info("Deleted job %s and all files", job_id)
-    return {"success": True}
-
-@app.post("/api/compose/{job_id}/{clip_index}")
-async def compose_clip(job_id: str, clip_index: int, req: ComposeRequest, request: Request):
-    """Compose a final video from active toggle layers (Smart Cut → Hook → Subtitles)."""
-    require_trusted_config_request(request)
-    enforce_rate_limit(request, "compose", capacity=30, refill_per_sec=30 / 60)
-    if not is_valid_job_id(job_id):
-        raise HTTPException(status_code=400, detail="Invalid job ID")
-
-    resolved = await asyncio.to_thread(resolve_clip, job_id, clip_index, OUTPUT_DIR)
-
-    try:
-        composed_filename = await compose_layers(
-            base_clip=resolved.clip_path,
-            job_dir=resolved.job_dir,
-            clip_index=clip_index,
-            metadata=resolved.metadata,
-            clip_info=resolved.clip_info,
-            toggles=req.toggles,
-            hook_params=req.hook_params,
-            subtitle_params=req.subtitle_params,
-            logo_params=req.logo_params,
-            grade_params=req.grade_params,
-            banner_params=req.banner_params,
-            drop_ranges=req.drop_ranges,
-        )
-        return {"composed_url": f"/videos/{job_id}/{composed_filename}"}
-    except (HTTPException, ClippyMeError):
-        raise
-    except Exception as e:
-        logger.error("Compose error for job %s clip %d: %s", job_id, clip_index, e)
-        raise HTTPException(status_code=500, detail="Compose pipeline failed")
-
-
-# ---------------------------------------------------------------------------
-# Publish (Zernio) endpoints
-# ---------------------------------------------------------------------------
-
-@app.post("/api/publish/{job_id}/{clip_index}")
-async def publish_clip_endpoint(job_id: str, clip_index: int, req: PublishRequest, request: Request):
-    """Upload a clip to Zernio and create a post on the requested platforms.
-
-    If req.compose_first is True, the clip is freshly composed (Smart Cut →
-    Hook → Subtitles) using req.toggles before upload — same flow as
-    /api/compose. Otherwise we look for an existing composed_clip_{i}.mp4
-    on disk and fall back to the base clip.
-    """
-    require_trusted_config_request(request)
-    # Throttle uploads so a runaway "publish all" can't exhaust Zernio quota.
-    enforce_rate_limit(request, "publish", capacity=30, refill_per_sec=30 / 60)
-    if not is_valid_job_id(job_id):
-        raise HTTPException(status_code=400, detail="Invalid job ID")
-
-    # require_file=False: the base clip may be absent when a composed file
-    # exists on disk — publish_clip_flow resolves the actual upload path.
-    resolved = await asyncio.to_thread(
-        resolve_clip, job_id, clip_index, OUTPUT_DIR, require_file=False)
-
-    zernio_cfg = await asyncio.to_thread(load_zernio_config)
-    return await publish_clip_flow(
-        job_id=job_id, clip_index=clip_index, resolved=resolved,
-        req=req.model_dump(), zernio_cfg=zernio_cfg,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Content-monitor endpoints (multi-platform, multi-channel)
-# ---------------------------------------------------------------------------
-
-@app.post("/api/live-monitor/start")
-async def live_monitor_start(req: LiveMonitorStartRequest, request: Request):
-    """Start a monitor for one platform:channel. Returns that monitor's status
-    (incl. its ``id``). Starting a duplicate (platform, channel) → 409."""
-    require_trusted_config_request(request)
-    enforce_rate_limit(request, "livemonitor", capacity=10, refill_per_sec=10 / 60)
-    # start() raises ValidationError/ConflictError (ClippyMeError) → mapped to HTTP.
-    return live_monitor.start(req.model_dump())
-
-
-@app.post("/api/live-monitor/stop")
-async def live_monitor_stop(request: Request):
-    """Stop one monitor, or all monitors only when the body is truly absent."""
-    require_trusted_config_request(request)
-    raw = await request.body()
-    req = None
-    if raw:
-        try:
-            body = await request.json()
-        except Exception:
-            raise HTTPException(status_code=400, detail="Malformed JSON body")
-        try:
-            req = LiveMonitorStopRequest.model_validate(body)
-        except ValidationError as exc:
-            raise HTTPException(
-                status_code=422, detail=exc.errors(include_context=False))
-    return await live_monitor.stop(req.monitor_id if req else None)
-
-
-@app.post("/api/live-monitor/{monitor_id}/config")
-async def live_monitor_update_config(monitor_id: str, request: Request):
-    """Patch selected settings on a running monitor (body: partial dict of
-    updatable fields — see ``validate_monitor_partial_update``). Applies to
-    FUTURE segments/publishes only, never retroactively."""
-    require_trusted_config_request(request)
-    enforce_rate_limit(request, "livemonitor", capacity=10, refill_per_sec=10 / 60)
-    try:
-        partial = await request.json()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Malformed JSON body")
-    return {"monitor": live_monitor.update_config(monitor_id, partial)}
-
-
-@app.post("/api/live-monitor/{monitor_id}/publishing")
-async def live_monitor_set_publishing(monitor_id: str, request: Request):
-    """Pause/resume auto-publishing with a strict boolean request body."""
-    require_trusted_config_request(request)
-    enforce_rate_limit(request, "livemonitor", capacity=10, refill_per_sec=10 / 60)
-    try:
-        body = await request.json()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Malformed JSON body")
-    try:
-        req = LiveMonitorPublishingRequest.model_validate(body)
-    except ValidationError as exc:
-        raise HTTPException(
-            status_code=422, detail=exc.errors(include_context=False))
-    return {"monitor": live_monitor.set_publishing(monitor_id, req.enabled)}
-
-
-@app.get("/api/live-monitor/status")
-async def live_monitor_status(request: Request, monitor_id: Optional[str] = None):
-    """One monitor's status (``?monitor_id=``) or ``{"monitors": [...]}`` for all."""
-    require_trusted_config_request(request)
-    return live_monitor.status(monitor_id)
-
-
-@app.post("/api/history/{job_id}/restore")
-async def restore_job(job_id: str, request: Request):
-    """Restore a past job into the in-memory jobs dict so edit/hook/subtitle endpoints work."""
-    require_trusted_config_request(request)
-    if not is_valid_job_id(job_id):
-        raise HTTPException(status_code=400, detail="Invalid job ID")
-    job_dir = os.path.join(OUTPUT_DIR, job_id)
-    job_entry = restore_job_from_disk(job_id, OUTPUT_DIR, job_dir)
-    jobs[job_id] = job_entry
-    logger.info("Restored job %s into memory (%d clips)", job_id, len(job_entry["result"]["clips"]))
-    return {"success": True, "status": "completed", "result": job_entry["result"]}
