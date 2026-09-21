@@ -498,7 +498,7 @@ export default function RedesignApp() {
       {editClip && (
         <EditClipModal clip={editClip.clip} idx={editClip.idx} jobId={jobId}
           initial={clipStates[editClip.idx]}
-          appliedMode={clipStates[editClip.idx]?.reframeMode || editClip.clip.reframe_mode || 'auto'}
+          appliedMode={(clipStates[editClip.idx]?.reframeConfirmed ? clipStates[editClip.idx]?.reframeMode : null) || editClip.clip.reframe_mode || 'auto'}
           preselections={preselections} sourceBanner={results?.source_info?.banner}
           onClose={() => setEditClip(null)}
           onApply={(params) => { reprocessClip(editClip.idx, editClip.clip, params); setEditClip(null); }} />
@@ -507,7 +507,7 @@ export default function RedesignApp() {
         <EditClipModal clip={bulkEdit.targets[0].c} idx={bulkEdit.targets[0].i} jobId={jobId}
           bulk targetCount={bulkEdit.targets.length}
           initial={clipStates[bulkEdit.targets[0].i]}
-          appliedMode={clipStates[bulkEdit.targets[0].i]?.reframeMode || bulkEdit.targets[0].c.reframe_mode || 'auto'}
+          appliedMode={(clipStates[bulkEdit.targets[0].i]?.reframeConfirmed ? clipStates[bulkEdit.targets[0].i]?.reframeMode : null) || bulkEdit.targets[0].c.reframe_mode || 'auto'}
           preselections={preselections} sourceBanner={results?.source_info?.banner}
           onClose={() => setBulkEdit(null)}
           onApply={(params) => { applyBulkEdit(params, bulkEdit.targets); setBulkEdit(null); }} />
