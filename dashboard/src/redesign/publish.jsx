@@ -128,7 +128,7 @@ export function PublishModal({ clips, jobId, clipStates = {}, preselections, sou
         queue_show_id: showId,
         queue_item_id: assignment.id,
       } : {}),
-      timezone: zernio?.timezone || 'Europe/Rome',
+      timezone: zernio?.timezone || 'Europe/Istanbul',
       tiktok_settings: plats.tiktok && accounts.tiktok ? {
         privacy_level: 'PUBLIC_TO_EVERYONE', allow_comment: true, allow_duet: true,
         allow_stitch: true, content_preview_confirmed: true, express_consent_given: true,
