@@ -19,7 +19,6 @@ import { allPresets, getDefaultPresetOpts, getDefaultPresetId, saveUserPreset, d
 import { HOOK_STYLE_DEFAULT } from './data';
 import { clipStateToParams, buildBulkPlan } from '../lib/bulkApply';
 import { runApplyEdit } from '../lib/applyEdit';
-import { applyInitialSubtitles } from '../lib/createPostprocess';
 
 import { useJobSubmission } from '../hooks/useJobSubmission';
 import { useJobPolling } from '../hooks/useJobPolling';
@@ -264,46 +263,26 @@ export default function RedesignApp() {
     isActive: status === 'processing',
     onResult: setResults,
     onCompleted: (data) => {
-      // The base pipeline is done, but a Create recipe with Subtitles enabled
-      // is not visually complete until the caption layer has been burned.
-      // Keep the user on Processing while we reuse the existing compose
-      // endpoint. This pass is subtitles-only: Hook and every other layer are
-      // explicitly OFF here and remain available/editable from their saved
-      // preselections afterwards.
-      const finish = async () => {
-        const readyClips = data.result?.clips || [];
-        let subtitleResult = { applied: 0, failed: 0 };
-        if (preselections?.subtitles && readyClips.length) {
-          setLogs((prev) => [...prev, '📝 Applying subtitles selected in Create...']);
-          subtitleResult = await applyInitialSubtitles({
-            jobId,
-            clips: readyClips,
-            preselections,
-            composeClip,
-            updateClipState,
-          });
-        }
-
-        setStatus('complete');
-        setConfetti(true);
-        setTimeout(() => setConfetti(false), 3000);
-        if (subtitleResult.failed > 0) {
-          pushToast('warn', `${subtitleResult.applied}/${readyClips.length} clips got subtitles · ${subtitleResult.failed} kept raw`);
-        } else {
-          pushToast('success', `${readyClips.length} clips ready${subtitleResult.applied ? ' · subtitles applied' : ''}`);
-        }
-        saveToHistory({
-          jobId,
-          status: 'complete',
-          timestamp: Date.now(),
-          source: processingMedia?.type === 'url' ? processingMedia.payload : processingMedia?.payload?.name || 'Local file',
-          title: data.result?.source_info?.title || undefined,
-          sourceType: processingMedia?.type || 'file',
-          clipCount: readyClips.length,
-          cost: data.result?.cost_analysis?.total_cost || null,
-        });
-      };
-      void finish();
+      const readyClips = data.result?.clips || [];
+      const post = data.result?.create_postprocess;
+      setStatus('complete');
+      setConfetti(true);
+      setTimeout(() => setConfetti(false), 3000);
+      if (post?.failed) {
+        pushToast('warn', `${post.applied || 0}/${post.requested || readyClips.length} clips got Create subtitles · ${post.failed} kept raw`);
+      } else {
+        pushToast('success', `${readyClips.length} clips ready${post?.applied ? ' · subtitles applied' : ''}`);
+      }
+      saveToHistory({
+        jobId,
+        status: 'complete',
+        timestamp: Date.now(),
+        source: processingMedia?.type === 'url' ? processingMedia.payload : processingMedia?.payload?.name || 'Local file',
+        title: data.result?.source_info?.title || undefined,
+        sourceType: processingMedia?.type || 'file',
+        clipCount: readyClips.length,
+        cost: data.result?.cost_analysis?.total_cost || null,
+      });
     },
     onStopped: (data) => {
       // Graceful stop kept the finished clips — route to the editable results
@@ -411,7 +390,7 @@ export default function RedesignApp() {
       setProcessingMedia({ type: h.sourceType || 'url', payload: h.source });
       try {
         const saved = localStorage.getItem(`clippyme_preselections_job_${h.jobId}`);
-        setPreselectionsRaw(saved ? JSON.parse(saved) : null);
+        setPreselectionsRaw(saved ? JSON.parse(saved) : (data.result?.create_recipe || null));
       } catch { setPreselectionsRaw(null); }
       setViewingHistory(true);
     } catch (err) {
