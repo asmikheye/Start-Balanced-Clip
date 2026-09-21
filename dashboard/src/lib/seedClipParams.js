@@ -1,3 +1,5 @@
+import { ATTRIBUTION_BANNER_ENABLED } from '../config.js';
+
 // Shared seeding of per-clip toggle/hook/subtitle defaults from the global
 // pre-selections. Previously duplicated (and subtly diverged!) between
 // ResultCard.jsx and BatchPublishModal.jsx — the single-clip path used a
@@ -15,7 +17,7 @@ export function seedToggles(preselections) {
         subtitles: !!preselections?.subtitles,
         logo: !!preselections?.logo,
         grade: !!(preselections?.grade && preselections.grade.preset && preselections.grade.preset !== 'none'),
-        banner: !!(preselections?.banner && preselections.banner.enabled),
+        banner: ATTRIBUTION_BANNER_ENABLED && !!(preselections?.banner && preselections.banner.enabled),
     };
 }
 
@@ -26,6 +28,9 @@ export function seedToggles(preselections) {
 // with the banner already pointed at the right channel. `sourceBanner` is
 // `source_info.banner` — only available once a job has actually run.
 export function seedBannerParams(preselections, sourceBanner) {
+    if (!ATTRIBUTION_BANNER_ENABLED) {
+        return { enabled: false, platform: 'kick', handle: '', y_pct: 0.85 };
+    }
     const b = preselections?.banner;
     if (b && b.enabled) {
         return { enabled: true, platform: b.platform || 'kick', handle: b.handle || '', y_pct: b.y_pct ?? 0.85 };
