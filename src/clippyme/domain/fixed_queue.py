@@ -56,15 +56,28 @@ def plan_fixed_queue(existing: list[dict], incoming: list[dict], *, now: datetim
 
     incoming_ids = {id(item) for item in incoming}
     groups: dict[str, deque] = {}
-    for item in movable + incoming:
+    incoming_show_order: list[str] = []
+    existing_show_order: list[str] = []
+
+    # Keep clip order inside each show, but seed the round-robin with fresh
+    # incoming shows so a newly processed episode receives the nearest
+    # available movable slot.
+    for item, is_incoming in (
+        [(item, False) for item in movable] + [(item, True) for item in incoming]
+    ):
         show = str(item.get("show_id") or "").strip()
         if not show:
             raise ValueError("every queue item requires show_id")
         groups.setdefault(show, deque()).append(item)
+        order = incoming_show_order if is_incoming else existing_show_order
+        if show not in order:
+            order.append(show)
     if not groups:
         return []
 
-    shows = deque(groups)
+    shows = deque(incoming_show_order + [
+        show for show in existing_show_order if show not in incoming_show_order
+    ])
     last_show = protected[-1][1].get("show_id") if protected else None
     start_after = max((stamp for stamp, _ in protected), default=lead)
     blocked = [stamp for stamp, _ in locked]
