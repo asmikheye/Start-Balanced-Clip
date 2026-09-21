@@ -305,7 +305,7 @@ class PublishRequest(BaseModel):
     schedule_mode: str = Field("now", pattern=r"^(now|auto|manual)$")
     scheduled_for: Optional[str] = Field(None, max_length=64)
     start_date: Optional[str] = Field(None, pattern=r"^\d{4}-\d{2}-\d{2}$")
-    timezone: str = Field("Europe/Rome", max_length=64)
+    timezone: str = Field("Europe/Istanbul", max_length=64)
     tiktok_settings: Optional[dict] = None
     compose_first: bool = False
     toggles: Optional[dict] = None
