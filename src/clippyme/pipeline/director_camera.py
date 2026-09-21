@@ -130,16 +130,27 @@ def apply_camera_lead(
     if not turns:
         return []
 
-    starts = [turns[0].start]
-    for index in range(1, len(turns)):
-        wanted = turns[index].start - lead
-        floor = starts[index - 1] + min_hold
-        starts.append(max(wanted, floor, starts[index - 1]))
+    # Build from KEPT switches, not every raw turn. Otherwise a burst of
+    # sub-second interjections can push each following switch one second later,
+    # even after the interjection itself has already been dropped.
+    kept: list[tuple[float, SpeakerTurn]] = [(turns[0].start, turns[0])]
+    for turn in turns[1:]:
+        wanted = max(turns[0].start, turn.start - lead)
+        last_start = kept[-1][0]
+        candidate = max(wanted, last_start + min_hold)
+        # If the hold would move the cut past the end of this speaker's turn,
+        # suppress that short interjection instead of poisoning later switches.
+        if candidate >= turn.end:
+            continue
+        # Consecutive kept turns for the same speaker do not need a cut.
+        if kept[-1][1].speaker == turn.speaker:
+            kept[-1] = (kept[-1][0], SpeakerTurn(kept[-1][1].start, turn.end, turn.speaker))
+            continue
+        kept.append((candidate, turn))
 
     shifted: list[SpeakerTurn] = []
-    for index, turn in enumerate(turns):
-        start = starts[index]
-        end = starts[index + 1] if index + 1 < len(starts) else turn.end
+    for index, (start, turn) in enumerate(kept):
+        end = kept[index + 1][0] if index + 1 < len(kept) else turn.end
         if end > start:
             shifted.append(SpeakerTurn(start, end, turn.speaker))
     return shifted
