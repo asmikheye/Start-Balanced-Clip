@@ -32,6 +32,36 @@ def test_batch_language_is_rejected_at_api_boundary():
         BatchRequest(urls=["https://example.com/video"], language="not-a-language")
 
 
+def test_create_subtitles_recipe_survives_process_and_batch_validation():
+    recipe = {
+        "mode": "karaoke",
+        "preset": "fire_impact",
+        "font_size": 54,
+        "font_color": "#FFFFFF",
+        "outline_color": "#000000",
+        "position": "bottom",
+        "align": "center",
+        "offset_y": -12,
+    }
+    process = ProcessRequest(url="https://upload.invalid/local", create_subtitles=recipe)
+    batch = BatchRequest(urls=["https://example.com/video"], create_subtitles=recipe)
+    assert process.create_subtitles == recipe
+    assert batch.create_subtitles == recipe
+
+
+def test_create_subtitles_rejects_nested_or_oversized_values():
+    with pytest.raises(ValidationError):
+        ProcessRequest(
+            url="https://upload.invalid/local",
+            create_subtitles={"nested": {"bad": True}},
+        )
+    with pytest.raises(ValidationError):
+        ProcessRequest(
+            url="https://upload.invalid/local",
+            create_subtitles={"font": "x" * 1001},
+        )
+
+
 def test_live_monitor_start_preserves_runtime_domain_fields():
     request = LiveMonitorStartRequest(
         **_MONITOR_BASE,
