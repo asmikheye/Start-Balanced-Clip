@@ -110,3 +110,32 @@ def test_restore_original_index_survives_deleted_after_publish_gap(tmp_path):
     clips = entry["result"]["clips"]
     assert len(clips) == 2
     assert [c["original_index"] for c in clips] == [0, 2]
+
+
+def test_restore_exposes_create_caption_artifact_without_replacing_raw(tmp_path):
+    job_id = "77777777-7777-4777-8777-777777777777"
+    job_dir = tmp_path / job_id
+    job_dir.mkdir()
+    raw_name = "moment_clip_1.mp4"
+    captioned_name = "moment.mp4"
+    metadata = {
+        "shorts": [{
+            "clip_filename": raw_name,
+            "create_composed_filename": captioned_name,
+            "title": "moment",
+        }],
+        "create_recipe": {
+            "subtitles": {"mode": "karaoke", "preset": "fire_impact", "font_size": 54}
+        },
+        "create_postprocess": {"requested": 1, "applied": 1, "failed": 0, "errors": []},
+    }
+    (job_dir / f"{job_id}_metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
+    (job_dir / raw_name).write_bytes(b"raw")
+    (job_dir / captioned_name).write_bytes(b"captioned")
+
+    entry = restore_job_from_disk(job_id, str(tmp_path), str(job_dir))
+    clip = entry["result"]["clips"][0]
+    assert clip["video_url"] == f"/videos/{job_id}/{raw_name}"
+    assert clip["create_composed_url"] == f"/videos/{job_id}/{captioned_name}"
+    assert entry["result"]["create_recipe"]["subtitles"]["preset"] == "fire_impact"
+    assert entry["result"]["create_postprocess"]["applied"] == 1
