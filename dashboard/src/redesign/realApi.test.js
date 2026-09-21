@@ -98,6 +98,15 @@ test('clipPreviewSrc prefers the composed previewUrl over the raw clip', () => {
   assert.equal(composed.endsWith('?v=7'), true);
 });
 
+test('clipPreviewSrc uses Create-captioned artifact until Edit asks for raw', () => {
+  const clip = {
+    video_url: '/videos/j/raw_clip_1.mp4',
+    create_composed_url: '/videos/j/captioned.mp4',
+  };
+  assert.equal(clipPreviewSrc(clip, {}).includes('captioned.mp4'), true);
+  assert.equal(clipPreviewSrc(clip, { useRawPreview: true }).includes('raw_clip_1.mp4'), true);
+});
+
 test('fmtDuration renders m:ss with zero-padded seconds', () => {
   assert.equal(fmtDuration(0, 65), '1:05');
   assert.equal(fmtDuration(10, 10), '0:00');
