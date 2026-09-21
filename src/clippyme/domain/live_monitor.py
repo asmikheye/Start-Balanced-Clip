@@ -166,11 +166,13 @@ def build_monitor_compose(platform: str, channel: str, clip: dict, override=None
     toggles = {
         "hook": bool(hook_params.get("text")),
         "subtitles": True,
-        "banner": ATTRIBUTION_BANNER_ENABLED and bool(banner),
         # Opt-in per monitor: strips silences/fillers before the overlays are
         # burned (compose runs subtitles BEFORE smartcut, so timing holds).
         "smartcut": bool(smart_cut),
         **(ov.get("toggles") or {}),
+        # Keep this last so stale/old monitor overrides cannot revive the
+        # disabled attribution feature.
+        "banner": ATTRIBUTION_BANNER_ENABLED and bool(banner),
     }
     return {
         "toggles": toggles,
