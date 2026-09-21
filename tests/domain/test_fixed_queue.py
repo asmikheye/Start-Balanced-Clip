@@ -37,3 +37,26 @@ def test_two_nearest_and_unknown_posts_stay_locked():
 def test_insufficient_horizon_fails_before_writes():
     with pytest.raises(ValueError, match="not enough fixed slots"):
         plan_fixed_queue([], items("M", 8), now=NOW, timezone="Europe/Rome", days=1)
+
+
+
+def test_fresh_show_gets_first_movable_slot_with_multiple_old_shows():
+    existing = [
+        {"id": "A1", "show_id": "A", "scheduled_for": "2026-09-21T08:30:00+02:00"},
+        {"id": "A2", "show_id": "A", "scheduled_for": "2026-09-21T11:30:00+02:00"},
+        {"id": "B1", "show_id": "B", "scheduled_for": "2026-09-21T13:30:00+02:00"},
+        {"id": "A3", "show_id": "A", "scheduled_for": "2026-09-21T16:00:00+02:00"},
+        {"id": "B2", "show_id": "B", "scheduled_for": "2026-09-21T18:00:00+02:00"},
+    ]
+    plan = plan_fixed_queue(
+        existing,
+        items("FRESH", 2),
+        now=NOW,
+        timezone="Europe/Rome",
+        lock_depth=2,
+    )
+    assert plan[0]["id"] == "FRESH1"
+    assert plan[0]["show_id"] == "FRESH"
+    assert [row["id"] for row in plan if row["show_id"] == "FRESH"] == [
+        "FRESH1", "FRESH2",
+    ]
