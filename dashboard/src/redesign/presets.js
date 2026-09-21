@@ -1,12 +1,12 @@
 // Create-flow presets. Manual config is always primary; presets are just a
-// quick way to apply a saved bundle of options. Three built-ins ship with the
-// app; users can save their own and pick one as the default (auto-applied when
-// Create loads). Stored per-browser in localStorage — fits the self-hosted,
+// quick way to apply a saved bundle of options. Create intentionally starts
+// with no built-ins; users save their own and can pick one as the default.
+// Stored per-browser in localStorage — fits the self-hosted,
 // single-user app (no accounts/backend needed).
 import { PRESETS as BUILTIN_PRESETS } from './data';
 
-const PRESETS_KEY = 'clippyme_user_presets_v1';
-const DEFAULT_KEY = 'clippyme_default_preset_v1';
+const PRESETS_KEY = 'clippyme_user_presets_v2';
+const DEFAULT_KEY = 'clippyme_default_preset_v2';
 
 // The create-options fields a preset captures (everything except the source).
 // Keep this in sync with the Clip Options controls in create.jsx — a missing
