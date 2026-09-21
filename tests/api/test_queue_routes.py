@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 import clippyme.api.app as app_module
 import clippyme.api.queue_routes as queue_routes
+from clippyme.api.schemas import PublishRequest
 from clippyme.integrations.social_publisher import ZernioError
 
 ORIGIN = {"Origin": "http://localhost:5175"}
@@ -122,3 +123,82 @@ def test_apply_restages_then_restores_originals_after_partial_target_failure(que
         ("p3", datetime.fromisoformat(original3).isoformat()),
         ("p4", datetime.fromisoformat(original4).isoformat()),
     ]
+
+
+
+def test_plan_dedupes_legacy_job_id_by_show_and_clip_index(queue_client):
+    client, state = queue_client
+    state["posts"] = [{
+        "_id": "legacy-post",
+        "title": "legacy",
+        "status": "scheduled",
+        "scheduledFor": (
+            datetime.now(ZoneInfo("Europe/Rome")) + timedelta(hours=4)
+        ).isoformat(),
+        "metadata": {"clippyme": {
+            "show_id": "source-episode123",
+            "queue_item_id": "old-job-uuid:7",
+        }},
+        "platforms": [{"platform": "youtube", "accountId": {"_id": "yt"}}],
+    }]
+    response = client.post("/api/publish/queue/plan", json={
+        "account_ids": ["yt"],
+        "incoming": [{
+            "id": "source-episode123:7",
+            "show_id": "source-episode123",
+        }],
+    })
+    assert response.status_code == 200
+    assert response.json()["duplicates"] == ["source-episode123:7"]
+    assert response.json()["assignments"] == []
+
+
+def test_apply_protects_nearest_real_instants_across_mixed_offsets(queue_client):
+    client, state = queue_client
+    day = (datetime.now(ZoneInfo("UTC")) + timedelta(days=2)).date().isoformat()
+    state["posts"] = [
+        {
+            "_id": "p1", "title": "p1", "status": "scheduled",
+            "scheduledFor": f"{day}T08:30:00+03:00",
+            "metadata": {"clippyme": {"show_id": "show"}},
+            "platforms": [{"platform": "youtube", "accountId": {"_id": "yt"}}],
+        },
+        {
+            "_id": "p2", "title": "p2", "status": "scheduled",
+            "scheduledFor": f"{day}T08:00:00+02:00",
+            "metadata": {"clippyme": {"show_id": "show"}},
+            "platforms": [{"platform": "youtube", "accountId": {"_id": "yt"}}],
+        },
+        {
+            "_id": "p3", "title": "p3", "status": "scheduled",
+            "scheduledFor": f"{day}T08:15:00+02:00",
+            "metadata": {"clippyme": {"show_id": "show"}},
+            "platforms": [{"platform": "youtube", "accountId": {"_id": "yt"}}],
+        },
+    ]
+    target_day = datetime.now(ZoneInfo("Europe/Rome")) + timedelta(days=4)
+    grid = ((10, 30), (12, 30)) if target_day.weekday() >= 5 else ((18, 0), (20, 0))
+    target = target_day.replace(
+        hour=grid[0][0], minute=grid[0][1], second=0, microsecond=0
+    ).isoformat()
+    response = client.post("/api/publish/queue/apply", json={
+        "account_ids": ["yt"],
+        "moves": [{
+            "post_id": "p1",
+            "expected_scheduled_for": state["posts"][0]["scheduledFor"],
+            "scheduled_for": target,
+        }],
+    })
+    assert response.status_code == 409
+    assert "protected horizon" in response.json()["detail"]
+    assert state["moves"] == []
+
+
+def test_publish_request_accepts_unicode_episode_queue_id():
+    req = PublishRequest(
+        platforms=[{"platform": "youtube", "accountId": "yt"}],
+        queue_show_id="Вписка-Мелстрой",
+        queue_item_id="вписка-мелстрой:3",
+    )
+    assert req.queue_show_id == "вписка-мелстрой"
+    assert req.queue_item_id == "вписка-мелстрой:3"
