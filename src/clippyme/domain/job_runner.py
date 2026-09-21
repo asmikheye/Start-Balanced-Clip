@@ -9,6 +9,7 @@ import threading
 from clippyme.domain import job_control
 from clippyme.domain.job_artifacts import relocate_root_job_artifacts
 from clippyme.domain.job_results import load_final_result, load_partial_result
+from clippyme.domain.create_postprocess import apply_create_subtitles
 from clippyme.domain.job_worker import enqueue_output
 from clippyme.domain.runtime_state import (
     collect_runtime_metrics,
@@ -231,8 +232,10 @@ def make_run_job(*, jobs: dict, output_root: str, on_change=None):
                     )
                     break
                 if returncode == 0:
-                    jobs[job_id]["status"] = "completed"
-                    jobs[job_id]["logs"].append("Process finished successfully.")
+                    # Keep the job in processing state until Create-time layers
+                    # are actually rendered. Previously the browser had to make
+                    # a second /api/compose call after seeing "completed", which
+                    # made captions racey and easy to skip.
                     if not glob.glob(os.path.join(output_dir, "*_metadata.json")):
                         await asyncio.to_thread(
                             relocate_root_job_artifacts,
@@ -240,6 +243,44 @@ def make_run_job(*, jobs: dict, output_root: str, on_change=None):
                             output_dir,
                             output_root,
                         )
+
+                    create_subtitles = job_data.get("create_subtitles") or {}
+                    if create_subtitles:
+                        jobs[job_id]["logs"].append(
+                            "📝 Applying subtitles selected in Create..."
+                        )
+                        _notify()
+                        try:
+                            summary = await apply_create_subtitles(
+                                job_id=job_id,
+                                output_root=output_root,
+                                subtitle_params=create_subtitles,
+                            )
+                            applied = int(summary.get("applied") or 0)
+                            failed = int(summary.get("failed") or 0)
+                            requested = int(summary.get("requested") or 0)
+                            if failed:
+                                jobs[job_id]["logs"].append(
+                                    f"⚠️ Create subtitles: {applied}/{requested} applied, "
+                                    f"{failed} failed; raw clip kept for failed items."
+                                )
+                                for item in summary.get("errors") or []:
+                                    jobs[job_id]["logs"].append(
+                                        f"   clip {int(item.get('clip_index', 0)) + 1}: "
+                                        f"{str(item.get('error') or 'unknown error')[:220]}"
+                                    )
+                            else:
+                                jobs[job_id]["logs"].append(
+                                    f"✅ Create subtitles applied to {applied}/{requested} clip(s)."
+                                )
+                        except Exception as exc:
+                            # Do not destroy a valid raw render if caption
+                            # composition itself breaks, but never hide it.
+                            jobs[job_id]["logs"].append(
+                                f"⚠️ Create subtitle post-process failed: {str(exc)[:240]}"
+                            )
+                        _notify()
+
                     final = await asyncio.to_thread(
                         load_final_result,
                         job_id,
@@ -247,6 +288,8 @@ def make_run_job(*, jobs: dict, output_root: str, on_change=None):
                     )
                     if final:
                         jobs[job_id]["result"] = final
+                        jobs[job_id]["status"] = "completed"
+                        jobs[job_id]["logs"].append("Process finished successfully.")
                     else:
                         jobs[job_id]["status"] = "failed"
                         jobs[job_id]["logs"].append("No metadata file generated.")
