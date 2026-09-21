@@ -88,7 +88,7 @@ async def publish_clip_flow(*, job_id: str, clip_index: int,
             platform_targets=req.get("platforms"),
             schedule_mode=req.get("schedule_mode"),
             scheduled_for=req.get("scheduled_for"),
-            timezone=req.get("timezone") or zernio_cfg.get("timezone") or "Europe/Rome",
+            timezone=req.get("timezone") or zernio_cfg.get("timezone") or "Europe/Istanbul",
             tiktok_settings=req.get("tiktok_settings"),
             start_date=req.get("start_date"),
             metadata={"clippyme": {
