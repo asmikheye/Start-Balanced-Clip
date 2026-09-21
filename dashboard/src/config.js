@@ -7,6 +7,9 @@
 // in dev/build, so browser behaviour is unchanged.
 export const API_BASE_URL = (import.meta.env && import.meta.env.VITE_API_URL) || '';
 
+// Feature kept in source but intentionally disabled product-wide.
+export const ATTRIBUTION_BANNER_ENABLED = false;
+
 export const config = {
     API_BASE_URL
 };
