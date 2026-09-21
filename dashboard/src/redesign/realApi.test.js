@@ -37,6 +37,23 @@ test('karaoke subtitles carry colours but not classic typography', () => {
   assert.equal('font' in p.subtitles, false, 'classic-only font key leaked into karaoke');
 });
 
+test('Create sends a subtitles-only initial compose recipe', () => {
+  const p = optsToPreselections({
+    subtitles: true, subMode: 'karaoke', subPreset: 'fire_impact',
+    subColor: '#FFFFFF', subStroke: '#000000', subFontSize: 54,
+    subPosition: 'bottom', subAlign: 'center', subOffsetY: -12,
+    hooks: true, smartcut: true, logo: true, gradePreset: 'vivid_pop',
+  });
+  assert.equal(p.compose.toggles.subtitles, true);
+  assert.equal(p.compose.toggles.hook, false);
+  assert.equal(p.compose.toggles.smartcut, false);
+  assert.equal(p.compose.toggles.logo, false);
+  assert.equal(p.compose.toggles.grade, false);
+  assert.equal(p.compose.subtitle_params.preset, 'fire_impact');
+  assert.equal(p.compose.subtitle_params.font_size, 54);
+  assert.equal(p.compose.subtitle_params.offset_y, -12);
+});
+
 test('karaoke font_size 0 means Auto and is omitted', () => {
   const p = optsToPreselections({ subtitles: true, subMode: 'karaoke', subFontSize: 0 });
   assert.equal('font_size' in p.subtitles, false);
@@ -96,6 +113,15 @@ test('clipPreviewSrc prefers the composed previewUrl over the raw clip', () => {
   const composed = clipPreviewSrc(clip, { previewUrl: '/videos/j/composed_clip_0.mp4', previewBust: 7 });
   assert.equal(composed.includes('composed_clip_0.mp4'), true);
   assert.equal(composed.endsWith('?v=7'), true);
+});
+
+test('clipPreviewSrc shows initial Create subtitles but can reveal raw', () => {
+  const clip = {
+    video_url: '/videos/j/raw_clip.mp4',
+    initial_composed_url: '/videos/j/captioned.mp4',
+  };
+  assert.equal(clipPreviewSrc(clip, {}).includes('captioned.mp4'), true);
+  assert.equal(clipPreviewSrc(clip, { useRawPreview: true }).includes('raw_clip.mp4'), true);
 });
 
 test('fmtDuration renders m:ss with zero-padded seconds', () => {
