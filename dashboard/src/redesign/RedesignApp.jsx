@@ -42,7 +42,7 @@ const DEFAULT_OPTS = {
   banner: false, bannerPlatform: 'kick', bannerHandle: '', bannerYPct: 0.85,
   language: 'multi',
   platforms: { tiktok: true, ig: true, yt: false },
-  preset: 'viral',
+  preset: null,
 };
 
 const CONFETTI_COLORS = ['#E6428D', '#9850C3', '#675ADD', '#0A81D9', '#02C5BF', '#F7BC59'];
