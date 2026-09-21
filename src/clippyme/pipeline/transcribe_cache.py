@@ -50,22 +50,6 @@ def get_cache_path(url: str) -> str:
     return os.path.join(CACHE_DIR, f"{url_hash}_transcript.json")
 
 
-def transcript_has_words(transcript) -> bool:
-    """Return True only when the transcript contains timestamped ASR words."""
-    if not isinstance(transcript, dict):
-        return False
-    segments = transcript.get("segments")
-    if not isinstance(segments, list):
-        return False
-    for segment in segments:
-        if not isinstance(segment, dict):
-            continue
-        for word in segment.get("words") or []:
-            if isinstance(word, dict) and str(word.get("word") or "").strip():
-                return True
-    return False
-
-
 def load_cached_transcript(url: str):
     """Load a cached transcript if it exists and is not expired (else None)."""
     cache_path = get_cache_path(url)
@@ -78,11 +62,6 @@ def load_cached_transcript(url: str):
             return None
         with open(cache_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        if not transcript_has_words(data):
-            logger.warning("Empty transcript cache %s — removing", cache_path)
-            with contextlib.suppress(OSError):
-                os.remove(cache_path)
-            return None
         print(f"📦 Loaded cached transcript ({os.path.basename(cache_path)})")
         return data
     except FileNotFoundError:
@@ -98,10 +77,7 @@ def load_cached_transcript(url: str):
 
 
 def save_transcript_cache(url: str, transcript) -> None:
-    """Save a usable transcript to cache atomically (tmp + replace)."""
-    if not transcript_has_words(transcript):
-        print("⚠️  Empty transcript not cached.")
-        return
+    """Save transcript to cache atomically (tmp + replace)."""
     os.makedirs(CACHE_DIR, exist_ok=True)
     cache_path = get_cache_path(url)
     tmp_path = cache_path + ".tmp"

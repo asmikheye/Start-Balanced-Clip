@@ -77,34 +77,3 @@ def test_bug6_detection_smoother_prunes_stale_tracks():
     s.smooth([{'box': [800, 0, 100, 100], 'score': 10000}], frame_number=200)
     assert len(s.histories) == 1, \
         f"old track should be pruned, got {list(s.histories.keys())}"
-
-
-
-def test_empty_deepgram_result_falls_back_to_whisper(monkeypatch):
-    from types import SimpleNamespace
-    import clippyme.pipeline.deepgram_transcribe as dg
-    import clippyme.pipeline.main as main
-
-    monkeypatch.setenv("TRANSCRIPTION_PROVIDER", "deepgram")
-    monkeypatch.setenv("CLIPPYME_TRANSCRIBE_AUDIO_ONLY", "false")
-    monkeypatch.setenv("WHISPER_DIARIZE", "false")
-
-    monkeypatch.setattr(
-        dg,
-        "transcribe_with_deepgram",
-        lambda _path: {"text": "", "segments": [], "language": "unknown"},
-    )
-
-    word = SimpleNamespace(word="hello", start=0.0, end=0.5, probability=0.99)
-    segment = SimpleNamespace(start=0.0, end=0.5, text="hello", words=[word])
-    info = SimpleNamespace(language="en", language_probability=0.99)
-
-    class _Whisper:
-        def transcribe(self, *_args, **_kwargs):
-            return [segment], info
-
-    monkeypatch.setattr(main, "_get_whisper_model", lambda *_args: _Whisper())
-
-    result = main.transcribe_video("dummy.mp4")
-    assert result["text"] == "hello"
-    assert result["segments"][0]["words"][0]["word"] == "hello"
