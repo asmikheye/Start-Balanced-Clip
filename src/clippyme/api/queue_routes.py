@@ -134,7 +134,7 @@ def list_queue_posts(body: Scope, request: Request):
     client, config = _client_and_config()
     selected = _selected_ids(body.account_ids, config)
     return {"posts": _snapshot(client, selected),
-            "timezone": config.get("timezone") or "Europe/Rome", "lock_depth": 2}
+            "timezone": config.get("timezone") or "Europe/Istanbul", "lock_depth": 2}
 
 
 @router.post("/map-show")
@@ -165,7 +165,7 @@ def plan_queue(body: PlanRequest, request: Request):
     known_items = {post["queue_item_id"] for post in posts if post.get("queue_item_id")}
     incoming = [{**item.model_dump(), "show_id": item.show_id.strip().casefold()}
                 for item in body.incoming if item.id not in known_items]
-    timezone = config.get("timezone") or "Europe/Rome"
+    timezone = config.get("timezone") or "Europe/Istanbul"
     try:
         assignments = plan_fixed_queue(posts, incoming, now=datetime.now(ZoneInfo(timezone)),
                                        timezone=timezone, lock_depth=2)
@@ -196,7 +196,7 @@ def apply_queue_moves(body: ApplyRequest, request: Request):
 def _apply_queue_moves_locked(body: ApplyRequest):
     client, config = _client_and_config()
     selected = _selected_ids(body.account_ids, config)
-    timezone = config.get("timezone") or "Europe/Rome"
+    timezone = config.get("timezone") or "Europe/Istanbul"
     now = datetime.now(ZoneInfo(timezone))
     posts = _snapshot(client, selected)
     by_id = {post["id"]: post for post in posts}
