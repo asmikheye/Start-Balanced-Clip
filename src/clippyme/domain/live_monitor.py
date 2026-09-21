@@ -66,6 +66,8 @@ PUBLISH_429_BACKOFF_SECONDS = 90
 # day ("Daily limit reached ..."). Rolling start_date forward finds the next
 # day with a free slot; these rolls are free (no sleep) and capped separately.
 PUBLISH_MAX_DAY_ROLLS = 7
+# Banner implementation remains in source but is product-disabled.
+ATTRIBUTION_BANNER_ENABLED = False
 
 
 # ---------------------------------------------------------------------------
@@ -153,14 +155,18 @@ def build_monitor_compose(platform: str, channel: str, clip: dict, override=None
     from clippyme.domain.banner import monitor_banner_params
 
     ov = override or {}
-    banner = monitor_banner_params(platform, channel, ov.get("banner"))
+    banner = (
+        monitor_banner_params(platform, channel, ov.get("banner"))
+        if ATTRIBUTION_BANNER_ENABLED
+        else None
+    )
     hook_text = str(clip.get("viral_hook_text") or clip.get("title") or "").strip()
     hook_params = {"text": hook_text, "position": "top", **(ov.get("hook_params") or {})}
     subtitle_params = {"position": "bottom", "align": "left", **(ov.get("subtitle_params") or {})}
     toggles = {
         "hook": bool(hook_params.get("text")),
         "subtitles": True,
-        "banner": bool(banner),
+        "banner": ATTRIBUTION_BANNER_ENABLED and bool(banner),
         # Opt-in per monitor: strips silences/fillers before the overlays are
         # burned (compose runs subtitles BEFORE smartcut, so timing holds).
         "smartcut": bool(smart_cut),
