@@ -15,15 +15,12 @@ test('seedToggles defaults everything off', () => {
   });
 });
 
-test('seedBannerParams prefers an explicit pre-selection over the source suggestion', () => {
+test('seedBannerParams stays disabled even with saved or source suggestions', () => {
   const pre = { banner: { enabled: true, platform: 'twitch', handle: 'xqc', y_pct: 0.7 } };
-  assert.deepEqual(seedBannerParams(pre, { platform: 'kick', handle: 'other' }),
-    { enabled: true, platform: 'twitch', handle: 'xqc', y_pct: 0.7 });
-});
-
-test('seedBannerParams falls back to the job source_info auto-suggestion', () => {
-  assert.deepEqual(seedBannerParams(undefined, { platform: 'youtube', handle: 'GrenBaudLounge' }),
-    { enabled: true, platform: 'youtube', handle: 'GrenBaudLounge', y_pct: 0.85 });
+  const expected = { enabled: false, platform: 'kick', handle: '', y_pct: 0.85 };
+  assert.deepEqual(seedBannerParams(pre, { platform: 'kick', handle: 'other' }), expected);
+  assert.deepEqual(seedBannerParams(undefined, { platform: 'youtube', handle: 'GrenBaudLounge' }), expected);
+  assert.equal(seedToggles(pre).banner, false);
 });
 
 test('seedBannerParams defaults disabled when neither is present', () => {
