@@ -143,6 +143,20 @@ export default function RedesignApp() {
   };
 
   useEffect(() => { if (apiKey) localStorage.setItem('gemini_key', apiKey); }, [apiKey]);
+
+  // A Create submission stores preselections before the backend has returned
+  // the new jobId. Persist them again once jobId exists so the FIRST reopen
+  // from History restores the exact Create recipe (not default captions).
+  useEffect(() => {
+    if (!jobId || !preselections) return;
+    try {
+      localStorage.setItem(
+        `clippyme_preselections_job_${jobId}`,
+        JSON.stringify(preselections),
+      );
+    } catch { /* localStorage is best-effort */ }
+  }, [jobId, preselections]);
+
   // Refresh on-disk titles and availability whenever History opens.
   const refreshBackendHistory = useCallback(async () => {
     const jobs = await listBackendJobs();
