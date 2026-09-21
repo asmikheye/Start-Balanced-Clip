@@ -198,12 +198,12 @@ test('successful reframe confirms mode only after backend returns', async () => 
   });
 
   await Promise.resolve();
-  assert.equal(updates[0].reframeMode, undefined);
-  assert.equal(updates[0].processing, true);
+  expect(updates[0].reframeMode).toBeUndefined();
+  expect(updates[0].processing).toBe(true);
 
   resolveReframe();
   await task;
   const confirmed = updates.find((patch) => patch.reframeConfirmed === true && patch.reframeMode === 'director');
-  assert.ok(confirmed);
-  assert.equal(confirmed.reframeBust, 123);
+  expect(confirmed).toBeTruthy();
+  expect(confirmed.reframeBust).toBe(123);
 });
