@@ -170,6 +170,24 @@ async def run_reframe(*, job_id: str, clip_index: int, mode: str,
         # Update in-memory metadata structures with the CLEAN url, then persist.
         clips[clip_index]["video_url"] = clean_video_url
         clips[clip_index]["reframe_mode"] = mode
+        stale_composed = clips[clip_index].pop("composed_filename", None)
+        clips[clip_index].pop("last_compose", None)
+        if (
+            isinstance(stale_composed, str)
+            and stale_composed
+            and "/" not in stale_composed
+            and "\\" not in stale_composed
+            and ".." not in stale_composed
+        ):
+            try:
+                os.remove(os.path.join(os.path.dirname(metadata_path), stale_composed))
+            except FileNotFoundError:
+                pass
+            except OSError:
+                logger.warning(
+                    "Could not remove stale composed clip after reframe: %s",
+                    stale_composed,
+                )
         data["shorts"] = clips
 
         # A persistence failure must NOT silently succeed: the clip on disk has
@@ -194,6 +212,8 @@ async def run_reframe(*, job_id: str, clip_index: int, mode: str,
             # its own cache-bust via `new_video_url` below on the <video> tag.
             jobs[job_id]["result"]["clips"][clip_index]["video_url"] = clean_video_url
             jobs[job_id]["result"]["clips"][clip_index]["reframe_mode"] = mode
+            jobs[job_id]["result"]["clips"][clip_index].pop("composed_filename", None)
+            jobs[job_id]["result"]["clips"][clip_index].pop("last_compose", None)
 
         if save_failed is not None:
             raise ClippyMeError(

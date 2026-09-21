@@ -1,4 +1,5 @@
 import os
+import json
 import sys
 import uuid
 import shutil
@@ -40,6 +41,7 @@ from clippyme.domain.clip_resolve import resolve_clip
 from clippyme.domain import job_control
 from clippyme.domain.job_actions import cancel_job_action, stop_job_action
 from clippyme.domain.job_journal import JOURNAL_FILENAME, make_journal_writer, recover_jobs
+from clippyme.domain.job_artifacts import save_job_metadata
 from clippyme.domain.job_runner import make_run_job
 from clippyme.domain.job_submission import QueueFullError, submit_job
 from clippyme.domain.publish_service import publish_clip_flow
@@ -319,11 +321,16 @@ async def process_endpoint(
     no_zoom = False
     skip_analysis = False
     model = None
+    compose_recipe = None
     content_type = request.headers.get("content-type", "")
     if "application/json" in content_type:
         try:
             body = await request.json()
             validated = ProcessRequest.model_validate(body or {})
+            compose_recipe = (
+                ComposeRequest.model_validate(validated.compose).model_dump()
+                if validated.compose else None
+            )
         except ValidationError as exc:
             raise HTTPException(status_code=400, detail=exc.errors())
         except ValueError as exc:
@@ -352,11 +359,13 @@ async def process_endpoint(
         no_zoom = str(form.get("no_zoom", "")).lower() in {"1", "true", "yes"} or no_zoom
         skip_analysis = str(form.get("skip_analysis", "")).lower() in {"1", "true", "yes"} or skip_analysis
         model = form.get("model", model) or None
+        compose_raw = form.get("compose")
         # Validate the multipart values through the same schema for
         # consistency — we drop the url requirement since we're using
         # an uploaded file path.
         try:
-            ProcessRequest.model_validate({
+            compose_value = json.loads(str(compose_raw)) if compose_raw else None
+            validated_upload = ProcessRequest.model_validate({
                 "url": "https://upload.invalid/local",
                 "reframe_mode": reframe_mode or None,
                 "letterbox_zoom": letterbox_zoom or None,
@@ -366,9 +375,16 @@ async def process_endpoint(
                 "no_zoom": no_zoom,
                 "skip_analysis": skip_analysis,
                 "model": model or None,
+                "compose": compose_value,
             })
+            compose_recipe = (
+                ComposeRequest.model_validate(validated_upload.compose).model_dump()
+                if validated_upload.compose else None
+            )
         except ValidationError as exc:
             raise HTTPException(status_code=400, detail=exc.errors())
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=400, detail="compose must be valid JSON") from exc
 
     if not url and not file:
         raise HTTPException(status_code=400, detail="Must provide URL or File")
@@ -444,6 +460,7 @@ async def process_endpoint(
         jobs=jobs, job_queue=job_queue, job_id=job_id,
         cmd=cmd, env=env, job_output_dir=job_output_dir,
         on_change=persist_jobs, cleanup_paths=(input_path,), input_path=input_path,
+        compose_recipe=compose_recipe,
     )
 
     return {"job_id": job_id, "status": "queued"}
@@ -460,6 +477,13 @@ async def batch_process(req: BatchRequest, request: Request):
         raise HTTPException(status_code=400, detail="Missing X-Gemini-Key header")
 
     batch_jobs = []
+    try:
+        compose_recipe = (
+            ComposeRequest.model_validate(req.compose).model_dump()
+            if req.compose else None
+        )
+    except ValidationError as exc:
+        raise HTTPException(status_code=400, detail=exc.errors()) from exc
 
     for url in req.urls:
         url = url.strip()
@@ -497,7 +521,7 @@ async def batch_process(req: BatchRequest, request: Request):
             await submit_job(
                 jobs=jobs, job_queue=job_queue, job_id=job_id,
                 cmd=cmd, env=env, job_output_dir=job_output_dir, batch=True,
-                on_change=persist_jobs,
+                on_change=persist_jobs, compose_recipe=compose_recipe,
             )
             batch_jobs.append({"url": url, "job_id": job_id})
         except QueueFullError:
@@ -809,6 +833,14 @@ async def compose_clip(job_id: str, clip_index: int, req: ComposeRequest, reques
             banner_params=req.banner_params,
             drop_ranges=req.drop_ranges,
         )
+        recipe = req.model_dump()
+        if composed_filename == resolved.clip_filename:
+            resolved.clip_info.pop("composed_filename", None)
+            resolved.clip_info.pop("last_compose", None)
+        else:
+            resolved.clip_info["composed_filename"] = composed_filename
+            resolved.clip_info["last_compose"] = recipe
+        await asyncio.to_thread(save_job_metadata, resolved.metadata_path, resolved.metadata)
         return {"composed_url": f"/videos/{job_id}/{composed_filename}"}
     except (HTTPException, ClippyMeError):
         raise

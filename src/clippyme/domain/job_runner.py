@@ -62,6 +62,79 @@ def _bounded_max_attempts(job_data: dict, env: dict) -> int:
     return min(10, max(1, value))
 
 
+async def apply_initial_compose(
+    job_id: str,
+    job_data: dict,
+    output_root: str,
+    *,
+    compose_impl=None,
+) -> int:
+    """Apply the Create-page layer recipe to every freshly rendered clip."""
+    recipe = job_data.get("compose_recipe")
+    if not isinstance(recipe, dict):
+        return 0
+    toggles = dict(recipe.get("toggles") or {})
+    if not any(bool(value) for value in toggles.values()):
+        return 0
+
+    from clippyme.domain.clip_resolve import clip_filename_for
+    from clippyme.domain.job_artifacts import load_job_metadata, save_job_metadata
+    if compose_impl is None:
+        from clippyme.domain.compose import compose_layers as compose_impl
+
+    metadata_path, metadata = await asyncio.to_thread(
+        load_job_metadata, job_id, output_root
+    )
+    job_dir = os.path.dirname(metadata_path)
+    clips = metadata.get("shorts", []) or []
+    applied = 0
+
+    for index, clip_info in enumerate(clips):
+        if clip_info.get("deleted_after_publish"):
+            continue
+        clip_filename = clip_filename_for(metadata_path, clip_info, index)
+        base_clip = os.path.join(job_dir, clip_filename)
+        if not os.path.isfile(base_clip) or os.path.getsize(base_clip) <= 0:
+            continue
+
+        hook_params = dict(recipe.get("hook_params") or {})
+        if toggles.get("hook") and not str(hook_params.get("text") or "").strip():
+            hook_params["text"] = (
+                clip_info.get("viral_hook_text")
+                or clip_info.get("video_title_for_youtube_short")
+                or clip_info.get("title")
+                or ""
+            )
+        effective_recipe = {
+            "toggles": toggles,
+            "hook_params": hook_params,
+            "subtitle_params": dict(recipe.get("subtitle_params") or {}),
+            "logo_params": dict(recipe.get("logo_params") or {}),
+            "grade_params": dict(recipe.get("grade_params") or {}),
+            "banner_params": dict(recipe.get("banner_params") or {}),
+            "drop_ranges": list(recipe.get("drop_ranges") or []),
+        }
+        composed_filename = await compose_impl(
+            base_clip=base_clip,
+            job_dir=job_dir,
+            clip_index=index,
+            metadata=metadata,
+            clip_info=clip_info,
+            **effective_recipe,
+        )
+        if composed_filename != clip_filename:
+            clip_info["composed_filename"] = composed_filename
+            clip_info["last_compose"] = effective_recipe
+        else:
+            clip_info.pop("composed_filename", None)
+            clip_info.pop("last_compose", None)
+        applied += 1
+
+    if applied:
+        await asyncio.to_thread(save_job_metadata, metadata_path, metadata)
+    return applied
+
+
 def make_run_job(*, jobs: dict, output_root: str, on_change=None):
     """Build the ``run_job`` coroutine bound to shared application state."""
 
@@ -231,8 +304,6 @@ def make_run_job(*, jobs: dict, output_root: str, on_change=None):
                     )
                     break
                 if returncode == 0:
-                    jobs[job_id]["status"] = "completed"
-                    jobs[job_id]["logs"].append("Process finished successfully.")
                     if not glob.glob(os.path.join(output_dir, "*_metadata.json")):
                         await asyncio.to_thread(
                             relocate_root_job_artifacts,
@@ -240,6 +311,24 @@ def make_run_job(*, jobs: dict, output_root: str, on_change=None):
                             output_dir,
                             output_root,
                         )
+                    try:
+                        composed_count = await apply_initial_compose(
+                            job_id, job_data, output_root
+                        )
+                        if composed_count:
+                            jobs[job_id]["logs"].append(
+                                f"Applied saved recipe to {composed_count} clip(s)."
+                            )
+                    except Exception as exc:
+                        jobs[job_id]["status"] = "failed"
+                        jobs[job_id]["logs"].append(
+                            f"Initial compose failed: {str(exc)[:180]}"
+                        )
+                        logger.exception(
+                            "initial compose failed for job_id=%s", job_id
+                        )
+                        break
+
                     final = await asyncio.to_thread(
                         load_final_result,
                         job_id,
@@ -247,6 +336,8 @@ def make_run_job(*, jobs: dict, output_root: str, on_change=None):
                     )
                     if final:
                         jobs[job_id]["result"] = final
+                        jobs[job_id]["status"] = "completed"
+                        jobs[job_id]["logs"].append("Process finished successfully.")
                     else:
                         jobs[job_id]["status"] = "failed"
                         jobs[job_id]["logs"].append("No metadata file generated.")

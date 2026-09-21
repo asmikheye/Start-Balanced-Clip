@@ -418,7 +418,7 @@ export async function setMonitorPublishing(monitorId, enabled) {
 // Map the redesign's flat `opts` into the preselections shape the existing
 // hooks + seedClipParams expect (subtitles/hook as truthy objects).
 export function optsToPreselections(opts) {
-  return {
+  const pre = {
     // Tri-state reframe mode. Fall back to the legacy boolean (`reframe`) for
     // any persisted preselections saved before the 3-mode selector landed.
     // 'object' is the legacy name for 'subject' (FrameShift face-first); the
@@ -480,6 +480,27 @@ export function optsToPreselections(opts) {
       ? { enabled: true, platform: opts.bannerPlatform || 'kick', handle: opts.bannerHandle || '', y_pct: opts.bannerYPct ?? 0.85 }
       : false,
   };
+
+  // The processing worker receives the same layer recipe that the Results/Edit
+  // UI would seed later. This makes Create selections real output settings:
+  // clips arrive in Results already composed with captions/logo/grade/etc.
+  pre.compose = {
+    toggles: {
+      smartcut: !!pre.smartcut,
+      subtitles: !!pre.subtitles,
+      hook: !!pre.hook,
+      logo: !!pre.logo,
+      grade: !!pre.grade,
+      banner: false,
+    },
+    hook_params: pre.hook || {},
+    subtitle_params: pre.subtitles || {},
+    logo_params: pre.logo || {},
+    grade_params: pre.grade || {},
+    banner_params: {},
+    drop_ranges: [],
+  };
+  return pre;
 }
 
 // Seconds → m:ss for clip duration display.

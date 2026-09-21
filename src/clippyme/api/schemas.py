@@ -95,6 +95,7 @@ class ProcessRequest(BaseModel):
     model: Optional[str] = Field(
         None, max_length=72, pattern=r"^gemini-[A-Za-z0-9.\-]{1,64}$"
     )
+    compose: Optional[dict] = None
 
     @field_validator("url")
     @classmethod
@@ -123,6 +124,7 @@ class BatchRequest(BaseModel):
     model: Optional[str] = Field(
         None, max_length=72, pattern=r"^gemini-[A-Za-z0-9.\-]{1,64}$"
     )
+    compose: Optional[dict] = None
 
     @field_validator("urls")
     @classmethod

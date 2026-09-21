@@ -153,7 +153,20 @@ def _build_clips(data: dict, base_name: str, job_id: str, output_dir: str, only_
         exists = os.path.exists(clip_path) and os.path.getsize(clip_path) > 0
         if only_ready and not exists:
             continue
-        clip["video_url"] = f"/videos/{job_id}/{clip_filename}"
+
+        display_filename = clip_filename
+        composed = clip.get("composed_filename")
+        if (
+            isinstance(composed, str)
+            and composed
+            and "/" not in composed
+            and "\\" not in composed
+            and ".." not in composed
+        ):
+            composed_path = os.path.join(output_dir, composed)
+            if os.path.exists(composed_path) and os.path.getsize(composed_path) > 0:
+                display_filename = composed
+        clip["video_url"] = f"/videos/{job_id}/{display_filename}"
         clip["original_index"] = index
         result.append(clip)
     return result
