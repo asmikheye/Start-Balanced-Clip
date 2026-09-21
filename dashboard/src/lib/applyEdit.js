@@ -18,6 +18,7 @@ export async function runApplyEdit({ jobId, idx, apiIdx = idx, params, api, upda
     processing: reframeChanged || anyCompose });
 
   if (!reframeChanged && !anyCompose) {
+    updateClipState(idx, { previewUrl: undefined, useRawPreview: true, processing: false });
     pushToast('success', `Clip ${idx + 1} updated`);
     return;
   }
@@ -34,6 +35,7 @@ export async function runApplyEdit({ jobId, idx, apiIdx = idx, params, api, upda
         reframeConfirmed: true,
         reframeBust: now(),
         previewUrl: undefined,
+        useRawPreview: true,
       });
     }
     if (anyCompose) {
@@ -46,7 +48,7 @@ export async function runApplyEdit({ jobId, idx, apiIdx = idx, params, api, upda
         banner_params: toggles.banner ? bannerParams : {},
         drop_ranges: toggles.smartcut ? (dropRanges || []) : [],
       });
-      updateClipState(idx, { previewUrl: composed_url, previewBust: now(), processing: false });
+      updateClipState(idx, { previewUrl: composed_url, previewBust: now(), useRawPreview: false, processing: false });
     } else {
       updateClipState(idx, { processing: false });
     }
@@ -56,7 +58,7 @@ export async function runApplyEdit({ jobId, idx, apiIdx = idx, params, api, upda
     // cache-buster even though composing failed — otherwise the card serves
     // the pre-reframe cached URL forever.
     if (reframeApplied) {
-      updateClipState(idx, { reframeBust: now(), previewUrl: undefined, processing: false });
+      updateClipState(idx, { reframeBust: now(), previewUrl: undefined, useRawPreview: true, processing: false });
       pushToast('error', `Clip ${idx + 1}: reframed, but composing the layers failed.`);
       return;
     }
