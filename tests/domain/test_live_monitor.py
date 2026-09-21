@@ -60,17 +60,14 @@ def test_empty_template_falls_back_to_auto_title():
 def test_build_monitor_compose_defaults():
     clip = {"viral_hook_text": "Wait for it", "title": "T"}
     recipe = build_monitor_compose("kick", "grenbaud", clip, None)
-    # smartcut is opt-in per monitor → off unless the config asks for it
+    # smartcut is opt-in per monitor → off unless the config asks for it.
+    # Attribution banner is product-disabled and must never auto-enable.
     assert recipe["toggles"] == {
-        "hook": True, "subtitles": True, "banner": True, "smartcut": False}
+        "hook": True, "subtitles": True, "smartcut": False, "banner": False}
     assert recipe["hook_params"]["position"] == "top"
     assert recipe["hook_params"]["text"] == "Wait for it"
-    # subtitles below the banner, left-aligned
     assert recipe["subtitle_params"] == {"position": "bottom", "align": "left"}
-    # banner auto-injected from the monitor's platform + channel
-    assert recipe["banner_params"]["platform"] == "kick"
-    assert recipe["banner_params"]["handle"] == "grenbaud"
-    assert recipe["banner_params"]["enabled"] is True
+    assert recipe["banner_params"] == {}
 
 
 def test_build_monitor_compose_no_hook_text_disables_hook():
@@ -87,6 +84,16 @@ def test_build_monitor_compose_smart_cut_opt_in():
 def test_build_monitor_compose_banner_override_disables():
     recipe = build_monitor_compose("kick", "grenbaud", {"viral_hook_text": "x"},
                                    {"banner": {"enabled": False}})
+    assert recipe["toggles"]["banner"] is False
+    assert recipe["banner_params"] == {}
+
+
+def test_build_monitor_compose_stale_banner_override_cannot_reenable():
+    recipe = build_monitor_compose(
+        "kick", "grenbaud", {"viral_hook_text": "x"},
+        {"banner": {"enabled": True, "platform": "kick", "handle": "grenbaud"},
+         "toggles": {"banner": True}},
+    )
     assert recipe["toggles"]["banner"] is False
     assert recipe["banner_params"] == {}
 
