@@ -154,6 +154,18 @@ def _build_clips(data: dict, base_name: str, job_id: str, output_dir: str, only_
         if only_ready and not exists:
             continue
         clip["video_url"] = f"/videos/{job_id}/{clip_filename}"
+        composed = clip.get("create_composed_filename")
+        if (
+            isinstance(composed, str)
+            and composed
+            and "/" not in composed
+            and "\\" not in composed
+            and ".." not in composed
+            and os.path.exists(os.path.join(output_dir, composed))
+        ):
+            clip["create_composed_url"] = f"/videos/{job_id}/{composed}"
+        else:
+            clip.pop("create_composed_url", None)
         clip["original_index"] = index
         result.append(clip)
     return result
@@ -176,6 +188,8 @@ def _result_payload(data: dict, clips: list, output_dir: str) -> dict:
         "clips": clips,
         "cost_analysis": data.get("cost_analysis"),
         "source_info": data.get("source_info"),
+        "create_recipe": data.get("create_recipe"),
+        "create_postprocess": data.get("create_postprocess"),
     }
     payload.update(runtime_result_fields(output_dir))
     return payload
