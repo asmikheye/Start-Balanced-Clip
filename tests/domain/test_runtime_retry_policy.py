@@ -87,3 +87,48 @@ def test_exit_two_never_retries(monkeypatch, tmp_path):
     assert calls == ["1"]
     assert jobs["j"]["status"] == "failed"
     assert any("non-retryable" in line for line in jobs["j"]["logs"])
+
+
+def test_successful_job_applies_create_subtitles_before_completed(monkeypatch, tmp_path):
+    _patch_runner_dependencies(monkeypatch, job_runner)
+    monkeypatch.setattr(job_runner.subprocess, "Popen", lambda *a, **k: _FinishedProcess(0))
+    monkeypatch.setattr(
+        job_runner,
+        "load_final_result",
+        lambda *a, **k: {
+            "clips": [{"video_url": "/videos/j/raw.mp4", "create_composed_url": "/videos/j/captioned.mp4"}],
+            "create_postprocess": {"requested": 1, "applied": 1, "failed": 0, "errors": []},
+        },
+    )
+    seen = []
+
+    async def fake_apply(**kwargs):
+        seen.append(kwargs["subtitle_params"])
+        return {"requested": 1, "applied": 1, "failed": 0, "errors": []}
+
+    monkeypatch.setattr(job_runner, "apply_create_subtitles", fake_apply)
+
+    jobs = {"j": {
+        "status": "queued",
+        "logs": [],
+        "cmd": ["python", "-m", "x"],
+        "env": {},
+        "output_dir": str(tmp_path),
+        "max_attempts": 3,
+        "create_subtitles": {
+            "mode": "karaoke",
+            "preset": "fire_impact",
+            "font_size": 54,
+            "position": "bottom",
+            "align": "center",
+            "offset_y": -12,
+        },
+    }}
+    run_job = job_runner.make_run_job(jobs=jobs, output_root=str(tmp_path))
+    asyncio.run(run_job("j", jobs["j"]))
+
+    assert jobs["j"]["status"] == "completed"
+    assert seen and seen[0]["preset"] == "fire_impact"
+    assert any("preset=fire_impact" in line and "size=54" in line for line in jobs["j"]["logs"])
+    assert any("Create subtitles applied to 1/1" in line for line in jobs["j"]["logs"])
+    assert jobs["j"]["result"]["clips"][0]["create_composed_url"].endswith("captioned.mp4")
