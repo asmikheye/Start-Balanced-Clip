@@ -84,6 +84,12 @@ def test_basename_uses_sanitized_title():
     assert clip_output_basename("My Viral Clip", 0, "source") == "My Viral Clip_clip_1"
 
 
+def test_basename_preserves_russian_cyrillic_title():
+    assert clip_output_basename("Находка, которая всё меняет", 0, "source") == (
+        "Находка, которая всё меняет_clip_1"
+    )
+
+
 def test_forbidden_chars_stripped():
     assert clip_output_basename('a<b>c:d"e/f\\g|h?i*j', 0, "source") == "abcdefghij_clip_1"
 

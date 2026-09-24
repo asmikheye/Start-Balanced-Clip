@@ -9,6 +9,13 @@ test('uses the AI title as the filename', () => {
   );
 });
 
+test('preserves a Russian Cyrillic title in the downloaded filename', () => {
+  assert.equal(
+    clipDownloadName({ video_title_for_youtube_short: 'Находка, которая всё меняет' }, 0),
+    'Находка, которая всё меняет.mp4',
+  );
+});
+
 test('strips Windows-forbidden characters', () => {
   assert.equal(
     clipDownloadName({ video_title_for_youtube_short: 'A<b>:c"/d\\e|f?g*h' }, 0),

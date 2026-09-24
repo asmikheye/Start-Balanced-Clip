@@ -163,13 +163,19 @@ normally on the words alone.
     * Warning / callout: "Stop scrolling if…"
     * Stakes / consequence: "After this, everything changes"
     * Prediction bait: "Guess the number"
-  The hook must TEASE the content of the clip without spoiling the payoff. Same language as the transcript. Title Case or Sentence case, never ALL CAPS.
+  The hook must TEASE the content of the clip without spoiling the payoff. Write it in natural Russian using Cyrillic. Sentence case, never ALL CAPS.
 - No generic intros/outros or pure sponsorship unless they ARE the hook
 
-## LANGUAGE RULE (HARD)
-Infer the transcript language ONLY from TRANSCRIPT SEGMENTS.
-Every text field (viral_reason, descriptions, titles, hook_text) MUST be in the SAME NATURAL LANGUAGE as the transcript.
-The examples below demonstrate structure only. NEVER copy their language; rewrite every example pattern naturally in the transcript language.
+## OUTPUT LANGUAGE RULE (HARD)
+Write EVERY generated text field in natural Russian using Cyrillic:
+viral_reason, video_description_for_tiktok,
+video_description_for_instagram, video_title_for_youtube_short and
+viral_hook_text. Translate the meaning of the source when the transcript is in
+another language. Never transliterate Russian into Latin characters and never
+leave titles or descriptions in the transcript language. Proper names and
+established brand names may keep their conventional spelling.
+The examples below demonstrate structure only. NEVER copy their language;
+rewrite every example pattern naturally in Russian.
 
 ## SPEAKER ATTRIBUTION RULE (CRITICAL)
 The transcript carries NO reliable speaker identity — you cannot tell who is
@@ -184,24 +190,24 @@ transcript's language — never guess. A wrong name is far worse than no name.
 ONE EXCEPTION: when a CHANNEL OWNER is given in VIDEO METADATA, that name may be
 the SUBJECT of a title/hook (whose stream this is, what happened on it) — but
 still never the source of a specific quote or opinion unless it is spoken in the
-clip. "<owner> trova un pezzo da 10k" is fine; "<owner>: 'non ci credo'" is not,
+clip. "<owner> находит вещь за 10 тысяч" is fine; "<owner>: «не могу поверить»" is not,
 because the voice may belong to a guest.
 
 ## TITLE & CAPTION COPY (this is where clips win or die)
 A title is NOT a summary of the clip. It is bait: its only job is to make
-someone stop, watch, and COMMENT. Flat descriptive titles ("Trova una moneta
-rara") are a failure even when the clip is great.
+someone stop, watch, and COMMENT. Flat descriptive titles ("Находит редкую
+монету") are a failure even when the clip is great.
 
 Write video_title_for_youtube_short and both descriptions with these rules:
 
 1. PLAY UP THE STAKES. Take what actually happens and frame it at its most
    dramatic, most absurd or most consequential reading. A rare coin is not "a
-   coin" — it is "il pezzo che ripaga un anno di stream".
+   coin" — it is "вещь, которая окупит целый год стримов".
 2. SPECULATE OUT LOUD. A consequence that does not happen in the clip is
    allowed ONLY as open speculation, never as a statement of fact — use a
    conditional, a question, or a "dopo questo…" framing:
-     OK:  "Dopo un cimelio da 10k, <creator> smette di fare live?"
-     OK:  "Con questo pezzo può chiudere lo stream e andare in pensione"
+     OK:  "После находки за 10 тысяч <creator> бросит стримы?"
+     OK:  "С такой находкой можно закрыть стрим и уйти на пенсию"
      NO:  "<creator> ha annunciato che smette" ← invented fact = a lie
 3. BAIT THE COMMENTS IMPLICITLY. At least one of the three text fields must
    give the viewer something to reply to: an opinion that splits the audience,
@@ -232,15 +238,15 @@ Write video_title_for_youtube_short and both descriptions with these rules:
    otherwise lead with the moment and put the name second. Use the handle the
    audience actually uses, never a legal name.
 
-Title patterns that work (STRUCTURE ONLY — rewrite them in the transcript language):
+Title patterns that work (STRUCTURE ONLY — write them naturally in Russian):
   * Consequence bait:   "<creator> could quit after this"
   * Valuation debate:   "What do you think it's worth? I'd say 10k"
-  * Underreaction:      "Finds a 10k piece and reacts like this"
+  * Underreaction:      "Находит вещь за 10 тысяч и реагирует вот так"
   * Ratio / stakes:     "1 spent, 10,000 found"
   * Near-emotion:       "Almost cried when the truth landed"
   * Prediction bait:    "Guess the value before the reveal"
   * Second-person POV:  "POV: you open the box and find this"
-  * Split opinion:      "I'd sell it immediately. Would you?"
+  * Split opinion:      "Я бы продал это сразу. А вы?"
   * Open question:      "Real or fake?"
   * Chat as antagonist: "Chat told them to sell it. Were they right?"
   * Withheld reveal:    "They stopped talking. Watch why"
@@ -254,11 +260,11 @@ easily-corrected detail. NEVER misstate a fact about a real person, health,
 money-making or news: that is misinformation, not bait.
 
 ## FEW-SHOT EXAMPLES
-GOOD TITLES (engagement-first, grounded in what the clip shows; rewrite into the transcript language):
+GOOD TITLES (engagement-first, grounded in what the clip shows; rewrite naturally in Russian):
   clip: the streamer digs up a collectible and says it is worth about 10k
-  video_title_for_youtube_short="After a 10k find, could they actually quit?"   ← speculative consequence, not stated as fact
-  video_title_for_youtube_short="Finds a 10,000 piece and barely reacts"         ← underreaction + number
-  video_title_for_youtube_short="Would you sell it? I wouldn't"                  ← splits the comments
+  video_title_for_youtube_short="После находки за 10 тысяч он правда всё бросит?" ← speculative consequence, not stated as fact
+  video_title_for_youtube_short="Находит вещь за 10 тысяч и почти не реагирует"   ← underreaction + number
+  video_title_for_youtube_short="Вы бы это продали? Я — нет"                      ← splits the comments
 BAD TITLES:
   "The moment they find the coin"          ← summary, no bait, no reason to comment
   "YOU WON'T BELIEVE WHAT THEY FIND 😱😱" ← caps + generic clickbait, zero information
@@ -266,21 +272,21 @@ BAD TITLES:
 
 GOOD (score 87):
   start=12.340 end=37.900
-  viral_reason="Opens with 'Everyone lies about this' — pattern-break hook, then delivers a counter-intuitive reveal with a clean payoff line at 34s viewers will quote."
-  viral_hook_text="The lie everyone believes"          ← teaser, NOT the literal opening line
+  viral_reason="Начинается с фразы «Об этом все врут» — она ломает шаблон, а затем приводит к неожиданному выводу и яркой финальной реплике на 34-й секунде."
+  viral_hook_text="Ложь, в которую верят все"          ← teaser, NOT the literal opening line
 
 GOOD (score 78):
   start=102.500 end=148.200
-  viral_reason="Builds tension with three failed attempts then lands a punchline at 140s — classic rule-of-three payoff structure perfect for Reels."
-  viral_hook_text="I failed 3 times before this"      ← number + stakes, standalone overlay
+  viral_reason="Три неудачные попытки нагнетают напряжение, а на 140-й секунде звучит панчлайн — классическая структура из трёх повторов с сильной развязкой."
+  viral_hook_text="До этого я ошибся трижды"           ← number + stakes, standalone overlay
 
 BAD hooks (DO NOT emit these — they literally echo the transcript):
-  "Hello everyone welcome back"          ← transcript intro, not a hook
-  "So today I wanted to talk about"      ← filler, no curiosity gap
-  "And then what happened next was"      ← mid-sentence fragment
+  "Всем привет, с возвращением"           ← transcript intro, not a hook
+  "Сегодня я хотел поговорить о том"      ← filler, no curiosity gap
+  "А потом произошло следующее"           ← mid-sentence fragment
 
 BAD (would score ~30 — DO NOT emit anything like this):
-  viral_reason="Interesting point about the topic"   ← too generic, no hook, no payoff specified
+  viral_reason="Интересная мысль по теме"            ← too generic, no hook, no payoff specified
 
 ## VIDEO METADATA
 VIDEO_DURATION_SECONDS: {video_duration}

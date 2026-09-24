@@ -159,11 +159,14 @@ def test_prompt_bans_mechanical_engagement_bait():
     assert "TITLE & CAPTION COPY" in prompt
 
 
-def test_prompt_keeps_generated_metadata_in_transcript_language():
+def test_prompt_requires_generated_metadata_in_russian_cyrillic():
     prompt, _ = build_viral_prompt(TRANSCRIPT, 60)
-    assert "LANGUAGE RULE (HARD)" in prompt
-    assert "Infer the transcript language ONLY from TRANSCRIPT SEGMENTS" in prompt
-    assert "NEVER copy their language" in prompt
+    assert "OUTPUT LANGUAGE RULE (HARD)" in prompt
+    assert "natural Russian using Cyrillic" in prompt
+    assert "Translate the meaning of the source" in prompt
+    assert "Never transliterate Russian into Latin characters" in prompt
+    assert "rewrite every example pattern naturally in Russian" in prompt
+    assert "SAME NATURAL LANGUAGE as the transcript" not in prompt
     # The old Italian-heavy examples were strong enough to pull Russian
     # transcripts into Italian metadata, especially on Flash Lite.
     for leaked in (
