@@ -13,6 +13,7 @@ from clippyme.pipeline.gemini_request import (
     generate_with_model_fallback,
     encode_words_toon,
     extract_prompt_words,
+    format_gemini_error,
     is_rate_limit_error,
 )
 
@@ -216,6 +217,7 @@ def test_default_model_chain_exhausts_current_free_tier_fallbacks():
 def test_generate_switches_model_after_primary_quota_exhaustion():
     calls = []
     sleeps = []
+    logs = []
 
     class Models:
         def generate_content(self, *, model, contents, config):
@@ -231,17 +233,62 @@ def test_generate_switches_model_after_primary_quota_exhaustion():
         ["gemini-3.5-flash", "gemini-3.1-flash-lite"],
         max_attempts=2,
         sleep_fn=sleeps.append,
+        log_fn=logs.append,
+    )
+
+    assert response == "ok"
+    assert used_model == "gemini-3.1-flash-lite"
+    assert calls == ["gemini-3.5-flash", "gemini-3.1-flash-lite"]
+    assert sleeps == []
+    assert logs == [
+        "⚠️ Gemini gemini-3.5-flash: 429 RESOURCE_EXHAUSTED — "
+        "quota/rate limit reached; switching to gemini-3.1-flash-lite."
+    ]
+
+
+def test_gemini_error_log_hides_nested_rpc_payload():
+    error = RuntimeError(
+        "429 RESOURCE_EXHAUSTED. {'error': {'message': 'You exceeded your "
+        "quota. Please retry in 40.3s', 'quotaMetric': "
+        "'generate_content_free_tier_input_token_count', 'links': "
+        "[{'url': 'https://example.invalid/docs'}]}}"
+    )
+    summary = format_gemini_error(error)
+    assert summary == (
+        "429 RESOURCE_EXHAUSTED — per-model input-token quota exhausted "
+        "(retry after 40s)"
+    )
+    assert "https://" not in summary
+    assert "{'error'" not in summary
+
+
+def test_last_model_still_honours_retry_after_on_quota_error():
+    calls = []
+    sleeps = []
+
+    class Models:
+        def generate_content(self, *, model, contents, config):
+            calls.append(model)
+            if len(calls) == 1:
+                raise RuntimeError(
+                    "429 RESOURCE_EXHAUSTED quota exceeded; retry in 7.2s"
+                )
+            return "ok"
+
+    client = type("Client", (), {"models": Models()})()
+    response, used_model = generate_with_model_fallback(
+        client,
+        "prompt",
+        ["gemini-3.1-flash-lite"],
+        max_attempts=2,
+        sleep_fn=sleeps.append,
         log_fn=lambda _msg: None,
     )
 
     assert response == "ok"
     assert used_model == "gemini-3.1-flash-lite"
-    assert calls == [
-        "gemini-3.5-flash",
-        "gemini-3.5-flash",
-        "gemini-3.1-flash-lite",
-    ]
-    assert sleeps == [10]
+    assert calls == ["gemini-3.1-flash-lite", "gemini-3.1-flash-lite"]
+    assert sleeps == [pytest.approx(8.2)]
 
 
 def test_generate_skips_unavailable_preview_model():

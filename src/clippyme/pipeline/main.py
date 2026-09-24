@@ -90,6 +90,7 @@ from clippyme.pipeline.gemini_request import (  # noqa: E402,F401
     compute_gemini_cost,
     count_prompt_tokens,
     extract_prompt_words,
+    format_gemini_error,
     generate_with_model_fallback,
     is_rate_limit_error,
 )
@@ -635,7 +636,10 @@ def get_viral_clips(transcript_result, video_duration, instructions=None):
         except Exception as exc:
             if is_rate_limit_error(exc):
                 get_viral_clips._last_gemini_exhausted = True
-            print(f"❌ Gemini API failed{label} across model chain: {exc}")
+            print(
+                f"❌ Gemini API failed{label} across model chain: "
+                f"{format_gemini_error(exc)}"
+            )
             print("⛔ Gemini analysis incomplete — no clips will be rendered.")
             return None
 

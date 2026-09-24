@@ -591,10 +591,48 @@ def build_viral_prompt_chunks(
 
     return fitted, whole_tokens
 
-def _format_gemini_error(exc, max_chars: int = 1600) -> str:
-    """Readable, key-redacted SDK error for job logs."""
+def format_gemini_error(exc, max_chars: int = 240) -> str:
+    """Compact, key-redacted Gemini error for user-facing job logs.
+
+    Google SDK exceptions include the entire RPC payload (help URLs, quota
+    dimensions and nested dictionaries).  That is useful for debug logs but
+    makes the live Operations feed unreadable, so retain only the actionable
+    status/reason and an optional retry hint.
+    """
     text = _API_KEY_RE.sub("***REDACTED***", str(exc or "unknown error"))
     text = " ".join(text.split())
+
+    code_match = re.search(r"\b(4\d\d|5\d\d)\b", text)
+    status_match = re.search(
+        r"\b(RESOURCE_EXHAUSTED|UNAVAILABLE|DEADLINE_EXCEEDED|NOT_FOUND|"
+        r"UNAUTHENTICATED|PERMISSION_DENIED|INVALID_ARGUMENT)\b",
+        text,
+        flags=re.IGNORECASE,
+    )
+    code = code_match.group(1) if code_match else ""
+    status = status_match.group(1).upper() if status_match else ""
+
+    lower = text.lower()
+    if "free_tier_input_token_count" in lower or "input-token" in lower:
+        reason = "per-model input-token quota exhausted"
+    elif "quota" in lower or "resource_exhausted" in lower or "rate limit" in lower:
+        reason = "quota/rate limit reached"
+    elif "high demand" in lower:
+        reason = "model is under high demand"
+    elif "deadline" in lower or "timed out" in lower:
+        reason = "request timed out"
+    elif "api key" in lower and ("invalid" in lower or "401" in lower):
+        reason = "API key rejected"
+    else:
+        reason = text
+
+    prefix = " ".join(part for part in (code, status) if part)
+    compact = f"{prefix} — {reason}" if prefix else reason
+    retry_match = re.search(r"retry in\s+([0-9]+(?:\.[0-9]+)?)s", text, re.IGNORECASE)
+    if retry_match:
+        compact += f" (retry after {float(retry_match.group(1)):.0f}s)"
+
+    text = compact
     if len(text) > max_chars:
         text = text[: max_chars - 1] + "…"
     return text
@@ -765,6 +803,7 @@ def generate_with_model_fallback(
         request_config["response_json_schema"] = response_json_schema
 
     for model_index, model_name in enumerate(models):
+        fallback_announced = False
         for attempt in range(attempts):
             try:
                 _wait_for_tpm_budget(
@@ -793,7 +832,7 @@ def generate_with_model_fallback(
                 return response, model_name
             except Exception as exc:
                 last_error = exc
-                detail = _format_gemini_error(exc)
+                detail = format_gemini_error(exc)
                 if _is_unavailable_model_error(exc):
                     log_fn(f"⏭️  Gemini {model_name} unavailable: {detail}")
                     break
@@ -802,12 +841,18 @@ def generate_with_model_fallback(
                     raise
                 rate_limited = is_rate_limit_error(exc)
                 if rate_limited:
+                    if model_index < len(models) - 1:
+                        next_model = models[model_index + 1]
+                        log_fn(
+                            f"⚠️ Gemini {model_name}: {detail}; "
+                            f"switching to {next_model}."
+                        )
+                        fallback_announced = True
+                        break
                     # A free-tier TPM 429 is often temporary after a successful
-                    # previous chunk. Respect Google's RetryInfo and retry the
-                    # SAME model before falling through to another model. This
-                    # only works because chunk preparation keeps each individual
-                    # request below the account's per-minute input-token limit.
-                    log_fn(f"⚠️  Gemini {model_name} rate/quota error: {detail}")
+                    # previous chunk. On the LAST configured model there is no
+                    # fallback left, so respect RetryInfo and retry it.
+                    log_fn(f"⚠️ Gemini {model_name}: {detail}")
                     if attempt < attempts - 1:
                         wait = _retry_after_seconds(
                             exc, default=backoff_seconds(True, attempt)
@@ -829,7 +874,7 @@ def generate_with_model_fallback(
                     sleep_fn(wait)
                 else:
                     log_fn(f"⚠️  Gemini {model_name} transient error: {detail}")
-        if model_index < len(models) - 1:
+        if model_index < len(models) - 1 and not fallback_announced:
             log_fn(f"🔀 Trying fallback model {models[model_index + 1]}")
     if last_error is not None:
         raise last_error
