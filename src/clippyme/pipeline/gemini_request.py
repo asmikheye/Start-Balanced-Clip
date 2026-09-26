@@ -12,6 +12,8 @@ import math
 import re
 import time
 
+from clippyme.config_defaults import default_gemini_fallback_csv
+
 # Per-model pricing ($ per 1M tokens) — update when Google changes rates
 MODEL_PRICING = {
     "gemini-3.6-flash": {"input": 0.75, "output": 3.75},
@@ -662,7 +664,7 @@ def build_model_chain(primary_model: str, fallback_models: str | None = None) ->
         # NB: pro models (gemini-*-pro-*) have limit:0 on the free API tier —
         # they 429 instantly, so they are intentionally NOT in the default
         # chain. Add one here (or via GEMINI_FALLBACK_MODELS) only on a paid plan.
-        "gemini-3.5-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite"
+        default_gemini_fallback_csv()
     )
     models = [primary_model, *(part.strip() for part in raw.split(","))]
     return list(dict.fromkeys(model for model in models if model))

@@ -94,6 +94,10 @@ from clippyme.pipeline.gemini_request import (  # noqa: E402,F401
     generate_with_model_fallback,
     is_rate_limit_error,
 )
+from clippyme.config_defaults import (  # noqa: E402
+    DEFAULT_GEMINI_MODEL,
+    DEFAULT_GEMINI_RETRY_MODEL,
+)
 
 # YOLO is lazy-loaded on first use. Keeping the model at import time
 # forced every entry-point (including --reframe-only, which never calls
@@ -424,8 +428,8 @@ def get_viral_clips(transcript_result, video_duration, instructions=None):
 
     client = genai.Client(api_key=api_key)
 
-    # Use selected model from env, or default to gemini-3.6-flash.
-    model_name = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
+    # Use selected model from env, or the shared application default.
+    model_name = os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL)
     model_chain = build_model_chain(model_name, os.getenv("GEMINI_FALLBACK_MODELS"))
     print(f"🤖  Initializing Gemini with model chain: {' → '.join(model_chain)}")
 
@@ -565,7 +569,7 @@ def get_viral_clips(transcript_result, video_duration, instructions=None):
         text = response.text or ""
 
         def _retry_gemini(err_msg: str) -> str:
-            retry_model = os.getenv("GEMINI_RETRY_MODEL", "gemini-3.5-flash-lite") or "gemini-3.5-flash-lite"
+            retry_model = os.getenv("GEMINI_RETRY_MODEL", DEFAULT_GEMINI_RETRY_MODEL) or DEFAULT_GEMINI_RETRY_MODEL
             retry_prompt = build_reformat_prompt(err_msg, text)
             try:
                 retry_chain = build_model_chain(
@@ -782,7 +786,7 @@ if __name__ == '__main__':
     parser.add_argument('--model', type=str, default=None,
                         help="Override the Gemini model for viral detection on THIS job (e.g. "
                              "'gemini-2.5-pro', 'gemini-3.1-pro-preview'). When unset, the pipeline uses "
-                             "GEMINI_MODEL from env / Settings (default gemini-3.6-flash).")
+                             f"GEMINI_MODEL from env / Settings (default {DEFAULT_GEMINI_MODEL}).")
 
     args = parser.parse_args()
 

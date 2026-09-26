@@ -125,8 +125,11 @@ ENV PYTHONUNBUFFERED=1
 # system-wide install in /usr/local/bin when a newer version is available.
 ENV PATH=/app/data/bin:$PATH
 
-# Install Python deps. CUDA pip wheels (nvidia-cublas-cu12, cudnn) are only
-# needed on the GPU path — skipping them on CPU saves ~500 MB per image.
+# Install Python deps. The generated requirements.lock includes the full
+# resolver output for audit/reproducibility, including the GPU packages that
+# PyTorch selected. Docker deliberately installs the shared base lock without
+# dependencies, then installs exactly one PyTorch variant. This keeps CPU
+# images free of CUDA 13 packages and keeps NVIDIA images on the cu126 line.
 #
 # Speaker diarization on the Whisper path is OPT-IN via ENABLE_WHISPER_DIARIZE.
 # pyannote.audio pulls ~500 MB of deps (pytorch-lightning, speechbrain,
@@ -137,22 +140,28 @@ ARG GPU_RUNTIME
 ARG ENABLE_WHISPER_DIARIZE=0
 # Install from the fully-pinned core lock plus the explicitly pinned auxiliary
 # CLI/rendering tools. requirements.txt is copied for reference/diagnostics.
-COPY requirements.lock requirements.txt requirements-runtime-tools.txt ./
+COPY requirements.lock requirements.base.lock requirements.txt requirements-runtime-tools.txt ./
 # BuildKit cache mount: pip's download cache lives in the mount (shared across
 # rebuilds) and is NOT baked into the image layer.
 # PyPI's torch 2.11 wheel uses CUDA 13, which excludes Pascal GPUs such as
 # the GTX 1050 Ti; the cu126 wheel retains sm_61 support on NVIDIA builds.
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --upgrade pip && \
-    pip install -r requirements.lock -r requirements-runtime-tools.txt && \
+    pip install --no-deps -r requirements.base.lock && \
+    pip install -r requirements-runtime-tools.txt && \
     if [ "$GPU_RUNTIME" = "nvidia" ]; then \
-        pip install 'torch==2.11.0+cu126' 'torchvision==0.26.0+cu126' \
-            --index-url https://download.pytorch.org/whl/cu126 && \
-        pip install nvidia-cublas-cu12 && \
+        pip install --no-deps 'torch==2.11.0+cu126' 'torchvision==0.26.0+cu126' \
+            --index-url https://download.pytorch.org/whl/cu126 \
+            --extra-index-url https://pypi.org/simple && \
+        pip install 'nvidia-cublas-cu12==12.6.4.1' && \
         SITE=$(python -c "import site; print(site.getsitepackages()[0])") && \
         echo "$SITE/nvidia/cublas/lib" > /etc/ld.so.conf.d/nvidia-pip.conf && \
         echo "$SITE/nvidia/cudnn/lib" >> /etc/ld.so.conf.d/nvidia-pip.conf && \
         ldconfig 2>/dev/null || true; \
+    else \
+        pip install --no-deps 'torch==2.11.0+cpu' 'torchvision==0.26.0+cpu' \
+            --index-url https://download.pytorch.org/whl/cpu \
+            --extra-index-url https://pypi.org/simple; \
     fi && \
     if [ "$ENABLE_WHISPER_DIARIZE" = "1" ]; then \
         pip install 'pyannote.audio>=3.1'; \

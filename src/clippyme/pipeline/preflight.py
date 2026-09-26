@@ -11,6 +11,8 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
+from clippyme.config_defaults import DEFAULT_GEMINI_MODEL
+
 _GIB = 1024 ** 3
 _MIB = 1024 ** 2
 
@@ -25,7 +27,7 @@ class PreflightInputs:
     input_bytes: int
     width: int | None = None
     height: int | None = None
-    model: str = "gemini-3.5-flash"
+    model: str = DEFAULT_GEMINI_MODEL
     aspect: str = "9:16"
     has_gpu: bool = False
     max_clips: int | None = None

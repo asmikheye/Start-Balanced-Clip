@@ -56,7 +56,7 @@ Given a video URL or upload, ClippyMe runs the following pipeline end-to-end:
 
 1. **Download** with `yt-dlp` (Deno-based JS runtime to bypass YouTube bot detection, optional cookies for age-gated content).
 2. **Transcribe** with one of three providers, chosen in Settings: **Deepgram Nova-3** by default (multi-language, code-switching EN/IT), **ElevenLabs Scribe** (emits `(laughter)`/`(applause)` audio-event tags that feed the viral prompt as a free emotional-payoff signal, with an optional Voice Isolator pre-pass for noisy sources), or local **Faster-Whisper**. Both cloud providers fall back to Faster-Whisper on any failure, so a bad key never breaks a job. The video is stripped to a mono-16 kHz FLAC first, so only audio is uploaded/decoded (a few MB instead of the full mp4). Cached on disk for 7 days keyed by URL hash.
-3. **Detect viral moments** with **Google Gemini** (`gemini-3.5-flash` by default). A 5-axis viral_score rubric (HOOK_STRENGTH, EMOTIONAL_PAYOFF, QUOTABILITY, SELF_CONTAINED, DENSITY) plus a 5-level robust JSON parser tolerates malformed model output. **No-AI fallback:** if no Gemini key is set or the call fails, the transcript is topic-segmented into several clips by dependency-light lexical **TextTiling** (ported from [ClipsAI](https://github.com/ClipsAI/clipsai)) instead of dumping the whole video as one clip, heuristic, not viral-ranked, but offline and free. **Clean clip edges:** each selected `[start, end]` is then snapped to transcript boundaries, first to the nearest **word** edge, then extended to the surrounding **sentence** (start back to the sentence onset, end forward to the sentence-final word) so a clip never opens or closes mid-word or mid-sentence. The sentence pass is asymmetric and clamped (≤60 s, no overlap with a neighbouring clip), guards against false sentence-ends (abbreviations, decimals, acronyms), and gracefully no-ops on unpunctuated transcripts, so it is never worse than the word-only snap. A final **waveform** pass then nudges each edge into the nearest actual audio **silence trough** (ffmpeg `silencedetect`) so a cut never clips a word's attack or release, moving only toward quiet, and a no-op when no silence sits near the edge.
+3. **Detect viral moments** with **Google Gemini** (`gemini-3.6-flash` by default). A 5-axis viral_score rubric (HOOK_STRENGTH, EMOTIONAL_PAYOFF, QUOTABILITY, SELF_CONTAINED, DENSITY) plus a 5-level robust JSON parser tolerates malformed model output. **No-AI fallback:** if no Gemini key is set or the call fails, the transcript is topic-segmented into several clips by dependency-light lexical **TextTiling** (ported from [ClipsAI](https://github.com/ClipsAI/clipsai)) instead of dumping the whole video as one clip, heuristic, not viral-ranked, but offline and free. **Clean clip edges:** each selected `[start, end]` is then snapped to transcript boundaries, first to the nearest **word** edge, then extended to the surrounding **sentence** (start back to the sentence onset, end forward to the sentence-final word) so a clip never opens or closes mid-word or mid-sentence. The sentence pass is asymmetric and clamped (≤60 s, no overlap with a neighbouring clip), guards against false sentence-ends (abbreviations, decimals, acronyms), and gracefully no-ops on unpunctuated transcripts, so it is never worse than the word-only snap. A final **waveform** pass then nudges each edge into the nearest actual audio **silence trough** (ffmpeg `silencedetect`) so a cut never clips a word's attack or release, moving only toward quiet, and a no-op when no silence sits near the edge.
 4. **Reframe to 9:16** with active-speaker tracking: YOLOv8 person detection + MediaPipe FaceMesh mouth-aspect-ratio (MAR) variance to pick who is speaking, then a smoothed cameraman that adapts speed and zoom per scene. Hardened against messy real-world inputs: variable-frame-rate normalization, audio `start_time` compensation (YouTube A/V desync), and corrupt-frame resilience, all no-ops on clean sources.
 5. **Post-process** each clip: Ken Burns auto-zoom (1.0→1.05×), EBU R128 audio normalization to −14 LUFS, automatic cover frame selection. Every rendered mp4 is written with a leading `moov` atom (`+faststart`), so it starts playing in the browser before the full file downloads and uploads cleanly to social. Every render and compose pass shares one near-visually-lossless libx264 setting (CRF 18, `CLIPPYME_X264_CRF`), so the stacked re-encodes don't compound into soft output; the final mux and download copy are stream-copy/lossless.
 6. **Optional editing** at download time (compose-on-demand): a **Colour grade** preset (warm_cinematic / cool_crisp / neutral_punch / vivid_pop), **Smart Cut** (filler-word + silence removal via auto-editor v3 timeline + audio polish, plus a separate manual transcript trim and a conversational AI trim), **Hook** text overlay (Pillow + emoji, with Instagram-Stories-style banner / colours / outline / font, defaulting to bannerless white Anton with a thin black outline), **Subtitles** (6 ASS karaoke presets or classic SRT with a live preview), and a **Brand logo** watermark. The per-clip editor is a tabbed modal; settings can be applied to one clip, copied to all clips, or staged across a multi-select. Custom subtitle/hook fonts and the logo are uploaded once in Settings.
@@ -139,8 +139,8 @@ All API keys, model selection, and cookies are managed **from the dashboard Sett
 
 | Key | Required for | Notes |
 |---|---|---|
-| `GEMINI_API_KEY` | Viral moment detection | Default model `gemini-3.5-flash`; override per job or set the default in Settings (live model discovery). |
-| `GEMINI_FALLBACK_MODELS` | Automatic quota fallback | Default: `gemini-3.1-flash-lite,gemini-3-flash-preview,gemini-2.5-flash,gemini-2.5-flash-lite`. Each new job retries the preferred `GEMINI_MODEL` first. |
+| `GEMINI_API_KEY` | Viral moment detection | Default model `gemini-3.6-flash`; override per job or set the default in Settings (live model discovery). |
+| `GEMINI_FALLBACK_MODELS` | Automatic quota fallback | Default: `gemini-3.5-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite`. Each new job retries the preferred `GEMINI_MODEL` first. |
 | `DEEPGRAM_API_KEY` | Cloud transcription (default) | Falls back to local Faster-Whisper if missing. |
 | `ELEVENLABS_API_KEY` | Alternative cloud transcription (Scribe) | Adds audio-event tags + optional Voice Isolator; also falls back to Faster-Whisper. |
 | `HUGGINGFACE_TOKEN` | Optional gated models for Whisper | |
@@ -150,12 +150,14 @@ All API keys, model selection, and cookies are managed **from the dashboard Sett
 For automatic Firefox cookies in Docker, mount a Firefox profile read-only and set
 `CLIPPYME_FIREFOX_PROFILE` to the mount target in the backend service. ClippyMe
 reads fresh cookies through yt-dlp on each download without exporting a cookie
-file. An uploaded `data/cookies.txt` takes precedence. On Windows, copy
-`docker-compose.override.example.yml` to `docker-compose.override.yml`, replace
-the Firefox profile path, and run `docker compose up -d`. The example also
-provides an optional DNS-over-HTTPS proxy for networks where ordinary DNS
-queries fail. The local override is ignored by Git and the Firefox profile must
-contain `cookies.sqlite`.
+file. An uploaded `data/cookies.txt` takes precedence. The tracked
+`docker-compose.override.example.yml` uses the host variable
+`CLIPPYME_FIREFOX_PROFILE_HOST_PATH`; set it in `.env` or the shell before
+starting Compose. This keeps the same Firefox flow portable across machines
+without committing a user-specific path. The local override is ignored by Git
+and the Firefox profile must contain `cookies.sqlite`. A Netscape `cookies.txt`
+upload is supported as the cross-browser alternative; direct Chrome or Edge
+profile mounting is not implemented.
 
 If Zernio's default API host (`zernio.com`) fails the TLS handshake on your
 network, the local override can set `ZERNIO_BASE_URL` to
@@ -440,7 +442,7 @@ This project has been audited; the current state is suitable for **trusted LAN d
 
 ## CPU vs GPU
 
-The CPU image runs everywhere (Linux x86_64, ARM64, Apple Silicon via Docker Desktop). Faster-Whisper falls back to CPU automatically and YOLOv8 uses the CPU path. The NVIDIA profile adds CUDA wheels for `torch`, `nvidia-cublas-cu12`, and the cuDNN runtime, expect a ~500 MB image-size overhead.
+The CPU image runs everywhere (Linux x86_64, ARM64, Apple Silicon via Docker Desktop). Faster-Whisper falls back to CPU automatically and YOLOv8 uses the CPU path. The Dockerfile installs a shared dependency base plus the CPU-only PyTorch wheels, so the default image does not carry CUDA libraries. The NVIDIA profile adds only the cu126 PyTorch wheels, `nvidia-cublas-cu12`, and the cuDNN runtime; expect a ~500 MB image-size overhead. `requirements.lock` remains the full resolver/audit lock, while `requirements.base.lock` is the CUDA-free install input used by Docker.
 
 ---
 

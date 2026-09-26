@@ -21,6 +21,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from clippyme.config_defaults import DEFAULT_GEMINI_MODEL
 from clippyme.domain.runtime_state import RuntimeState
 from clippyme.pipeline.media_qa import inspect_clip, probe_media
 from clippyme.pipeline.preflight import (
@@ -286,7 +287,7 @@ def _run_preflight(args, input_video: str, output_dir: str, state: RuntimeState,
         free_disk = shutil.disk_usage(output_dir).free
     except OSError:
         free_disk = None
-    model = args.model or os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+    model = args.model or os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL)
     report = build_preflight(
         PreflightInputs(
             duration_seconds=duration,
