@@ -200,6 +200,26 @@ def test_frameshift_frame_always_returns_valid_vertical():
     assert out2.shape[0] == 1920 and out2.shape[1] == 1080
 
 
+def test_frameshift_black_pad_contains_portrait_source_on_wide_output():
+    """Subject's no-detection fallback must contain portrait input.
+
+    The old width-first resize made a 1080x1920 source 1920x3413 and then
+    cropped its top/bottom to fit a 1920x1080 output.  A contain-scale keeps
+    both edge markers visible, with pillarbox bars on the sides.
+    """
+    frame = np.full((1920, 1080, 3), 10, dtype=np.uint8)
+    frame[0, :, :] = (200, 0, 0)
+    frame[-1, :, :] = (0, 0, 200)
+
+    out = reframe._black_pad_to_output(frame, 1920, 1080)
+
+    assert out.shape == (1080, 1920, 3)
+    # The portrait image is scaled to 608x1080 and centred, so both source
+    # edges reach the output's top and bottom rows at the image centre.
+    assert tuple(out[0, 960]) == (200, 0, 0)
+    assert tuple(out[-1, 960]) == (0, 0, 200)
+
+
 def test_frameshift_weights_env_override(monkeypatch):
     """REFRAME_FRAMESHIFT_WEIGHTS overrides the GUI-default sliders + adds
     per-COCO-class weights; empty/unset yields the FrameShift defaults."""

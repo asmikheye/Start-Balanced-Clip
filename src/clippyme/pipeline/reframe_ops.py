@@ -197,6 +197,21 @@ def letterbox_plan(src_w: int, src_h: int, out_w: int, out_h: int,
         return max(lo, n - (n % 2))
 
     z = min(max(float(zoom or 0.0), 0.0), 0.5)
+
+    # With no explicit zoom, ``Off`` must be a true contain operation for every
+    # output aspect ratio.  The old width-first calculation only handled the
+    # usual landscape-to-portrait case; a portrait source rendered to a square
+    # or landscape canvas could overflow vertically and crop the source despite
+    # the mode's contract to preserve the whole frame.
+    if z == 0.0:
+        scale = min(out_w / float(src_w), out_h / float(src_h))
+        scaled_w = _even(round(src_w * scale))
+        scaled_h = _even(round(src_h * scale))
+        return ((0, 0, _even(src_w), _even(src_h)),
+                (scaled_w, scaled_h),
+                (max(0, (out_w - scaled_w) // 2),
+                 max(0, (out_h - scaled_h) // 2)))
+
     crop_w = _even(round(src_w * (1.0 - z)))
     crop_w = min(crop_w, _even(src_w))
     crop_x = (src_w - crop_w) // 2

@@ -342,18 +342,25 @@ def _black_pad_to_output(frame, output_width, output_height):
     the GUI screenshot) rather than blurred/zoomed.
     """
     orig_h, orig_w = frame.shape[:2]
-    scale = output_width / float(orig_w)
-    fg_h = int(round(orig_h * scale))
-    if fg_h % 2 != 0:
-        fg_h += 1
-    foreground = cv2.resize(frame, (output_width, fg_h))
+    # Contain the source for every aspect-ratio combination.  Width-first
+    # scaling works for the usual landscape-to-portrait path, but it makes a
+    # portrait source taller than a square/landscape canvas and the old code
+    # then cropped the top and bottom.  Subject's no-detection fallback promises
+    # a black-padded full-frame result, so choose the largest scale that fits
+    # both dimensions and centre the image on the canvas.
+    scale = min(
+        output_width / float(orig_w),
+        output_height / float(orig_h),
+    )
+    # Clamp the rounded dimensions as floating-point tie cases can otherwise
+    # round one axis one pixel beyond the canvas.
+    fg_w = min(output_width, max(1, int(round(orig_w * scale))))
+    fg_h = min(output_height, max(1, int(round(orig_h * scale))))
+    foreground = cv2.resize(frame, (fg_w, fg_h))
     canvas = np.zeros((output_height, output_width, 3), dtype=np.uint8)
-    if fg_h >= output_height:
-        crop_y = (fg_h - output_height) // 2
-        canvas[:] = foreground[crop_y:crop_y + output_height, :]
-    else:
-        y_offset = (output_height - fg_h) // 2
-        canvas[y_offset:y_offset + fg_h, :] = foreground
+    x_offset = (output_width - fg_w) // 2
+    y_offset = (output_height - fg_h) // 2
+    canvas[y_offset:y_offset + fg_h, x_offset:x_offset + fg_w] = foreground
     return canvas
 
 
@@ -458,7 +465,11 @@ def analyze_scenes_strategy(video_path, scenes):
     strategies = []
 
     if not cap.isOpened():
-        return ['TRACK'] * len(scenes)
+        # No readable frames means no evidence for a face/subject strategy.
+        # GENERAL is the safe, non-aggressive fallback; TRACK would fabricate a
+        # crop around a subject that was never detected.
+        cap.release()
+        return ['GENERAL'] * len(scenes)
 
     try:
         frame_w = cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 1.0
