@@ -1,4 +1,4 @@
-"""Source-level guard: tracker state must reset at every scene boundary.
+"""Source-level guards for scene analysis and tracker lifecycle.
 
 SpeakerTracker / DetectionSmoother carry face identities, MAR history and box
 histories. Without a reset at a hard cut, a face in the new scene that lands
@@ -13,6 +13,7 @@ sites) still live in ``reframe.py``, which imports cv2/mediapipe/YOLO — the
 host tier doesn't have those, so the wiring checks PARSE that source instead
 of importing it. Behavioural coverage runs in Docker; this pins the wiring.
 """
+import ast
 from pathlib import Path
 
 from clippyme.pipeline.reframe_track import DetectionSmoother, SpeakerTracker
@@ -52,3 +53,37 @@ def test_short_scene_sampling_is_clamped():
     src = _source()
     assert "min(s_frame + 2, e_frame - 1)" in src
     assert "max(e_frame - 2, s_frame)" in src
+
+
+def test_auto_uses_general_when_video_cannot_be_opened():
+    """An unopened capture has no evidence to justify subject tracking."""
+    tree = ast.parse(_source())
+    function = next(
+        node for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "analyze_scenes_strategy"
+    )
+    for node in ast.walk(function):
+        if (isinstance(node, ast.If)
+                and isinstance(node.test, ast.UnaryOp)
+                and isinstance(node.test.op, ast.Not)
+                and isinstance(node.test.operand, ast.Call)
+                and ast.unparse(node.test.operand.func) == "cap.isOpened"):
+            return_stmt = next(
+                (stmt for stmt in node.body if isinstance(stmt, ast.Return)),
+                None,
+            )
+            assert return_stmt is not None
+            fallback = return_stmt.value
+            assert isinstance(fallback, ast.BinOp)
+            assert isinstance(fallback.op, ast.Mult)
+            assert isinstance(fallback.left, ast.List)
+            assert [elt.value for elt in fallback.left.elts] == ["GENERAL"]
+            assert ast.unparse(fallback.right) == "len(scenes)"
+            assert any(
+                isinstance(stmt, ast.Expr)
+                and isinstance(stmt.value, ast.Call)
+                and ast.unparse(stmt.value.func) == "cap.release"
+                for stmt in node.body
+            )
+            return
+    raise AssertionError("unopened-capture fallback branch not found")

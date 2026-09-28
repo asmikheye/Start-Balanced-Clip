@@ -85,7 +85,7 @@ export const PLATFORMS = [
 
 export function PlatPill({ id, icon, label, on, onClick }) {
   return (
-    <button type="button" className={`plat${on ? ` on ${id}` : ''}`} aria-pressed={!!on} onClick={onClick}>
+    <button type="button" className={`plat${on ? ` on ${id}` : ''}`} aria-label={label} aria-pressed={!!on} onClick={onClick}>
       <Social n={icon} color={on ? 'white' : '7E7E8F'} />{label}
     </button>
   );

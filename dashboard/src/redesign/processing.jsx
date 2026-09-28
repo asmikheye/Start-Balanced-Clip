@@ -35,7 +35,7 @@ export function compactUserLogLine(line) {
     const model = text.match(/^⚠️ Gemini\s+([^\s]+)\s+transient error/i)?.[1] || 'model';
     const attempt = text.match(/\(attempt\s+(\d+\/\d+)\)/i)?.[1];
     const status = text.match(/:\s*(\d{3})\s+[A-Z_]+/)?.[1] || 'temporary';
-    const retry = /Retrying in\s+([^\.]+)\.\.\./i.exec(text)?.[1];
+    const retry = /Retrying in\s+([^.]+)\.\.\./i.exec(text)?.[1];
     return '⚠️ Gemini ' + model + ' temporarily unavailable · ' + status
       + (attempt ? ' · attempt ' + attempt : '')
       + (retry ? ' · retry ' + retry : '');

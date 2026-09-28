@@ -43,6 +43,19 @@ def test_extract_uses_segment_speaker_when_word_has_no_label():
     assert extract_clip_diarized_words(transcript, 20.0, 21.0)[0]["speaker"] == 3
 
 
+def test_extract_uses_segment_speaker_when_word_label_is_null():
+    """Explicit JSON null is equivalent to an omitted word label."""
+    transcript = {
+        "segments": [
+            {
+                "speaker": 3,
+                "words": [{"word": "hello", "start": 20.0, "end": 20.5, "speaker": None}],
+            }
+        ]
+    }
+    assert extract_clip_diarized_words(transcript, 20.0, 21.0)[0]["speaker"] == 3
+
+
 def test_extract_without_any_diarization_returns_empty():
     transcript = {
         "segments": [

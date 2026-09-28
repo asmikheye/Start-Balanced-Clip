@@ -635,6 +635,16 @@ def test_letterbox_plan_keeps_the_whole_frame_by_default():
     assert offset == (0, (1920 - 608) // 2)
 
 
+def test_letterbox_plan_contains_portrait_source_on_wide_output():
+    # Off must preserve the entire source even when the requested output is wider
+    # than the source.  This is the pillarbox mirror of the normal landscape ->
+    # portrait letterbox case.
+    crop, size, offset = ro.letterbox_plan(1080, 1920, 1920, 1080)
+    assert crop == (0, 0, 1080, 1920)
+    assert size == (608, 1080)
+    assert offset == ((1920 - 608) // 2, 0)
+
+
 def test_letterbox_plan_zoom_crops_the_sides_and_shrinks_the_bars():
     _, base_size, _ = ro.letterbox_plan(1920, 1080, 1080, 1920)
     crop, size, offset = ro.letterbox_plan(1920, 1080, 1080, 1920, zoom=0.15)

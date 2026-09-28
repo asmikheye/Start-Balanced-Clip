@@ -1,6 +1,13 @@
-# Optional local settings for Windows. Copy this file to
-# docker-compose.override.yml and replace the Firefox profile path below.
-# The copied file is ignored by Git because it points to your browser data.
+# Optional local settings for browser cookies. Copy this file to
+# docker-compose.override.yml and set CLIPPYME_FIREFOX_PROFILE_HOST_PATH in
+# .env (or in the shell) to the host Firefox profile directory. The copied
+# file is ignored by Git because it points to private browser data.
+#
+# Windows PowerShell example:
+#   $env:CLIPPYME_FIREFOX_PROFILE_HOST_PATH =
+#     (Join-Path $env:APPDATA 'Mozilla/Firefox/Profiles/xxxxxxxx.default-release')
+# Linux example:
+#   export CLIPPYME_FIREFOX_PROFILE_HOST_PATH="$HOME/.mozilla/firefox/xxxxxxxx.default-release"
 services:
   backend:
     environment:
@@ -9,7 +16,7 @@ services:
       # ZERNIO_BASE_URL: https://api.zernio.com/api/v1
     volumes:
       - type: bind
-        source: C:/Users/YOU/AppData/Roaming/Mozilla/Firefox/Profiles/YOUR_PROFILE
+        source: "${CLIPPYME_FIREFOX_PROFILE_HOST_PATH:?Set CLIPPYME_FIREFOX_PROFILE_HOST_PATH to your Firefox profile directory}"
         target: /firefox-profile
         read_only: true
     dns:

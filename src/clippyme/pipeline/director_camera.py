@@ -68,7 +68,12 @@ def extract_clip_diarized_words(
                 continue
             if end <= clip_start or start >= clip_end or end < start:
                 continue
-            speaker = word.get("speaker", seg_speaker)
+            # Some ASR providers serialise an unknown word label explicitly as
+            # ``null``.  Treat that the same as an omitted word label so a
+            # valid segment-level speaker can still drive Director mode.
+            speaker = word.get("speaker")
+            if speaker is None:
+                speaker = seg_speaker
             try:
                 speaker = int(speaker)
             except (TypeError, ValueError):

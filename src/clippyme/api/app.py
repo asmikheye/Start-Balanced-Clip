@@ -31,6 +31,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
+from clippyme.config_defaults import DEFAULT_GEMINI_MODEL
+
 from clippyme.domain.job_results import ALLOWED_REFRAME_MODES, build_main_cmd, canonical_reframe_mode
 from clippyme.domain.compose import compose_layers
 from clippyme.domain.reframe_service import run_reframe
@@ -718,7 +720,7 @@ async def edit_clip_ai(
 
     cfg = load_persistent_config() or {}
     key = api_key or os.environ.get("GEMINI_API_KEY") or cfg.get("GEMINI_API_KEY")
-    model = req.model or cfg.get("GEMINI_MODEL") or "gemini-3.5-flash"
+    model = req.model or cfg.get("GEMINI_MODEL") or DEFAULT_GEMINI_MODEL
     if not key:
         raise HTTPException(status_code=400, detail="Gemini API key not configured")
 

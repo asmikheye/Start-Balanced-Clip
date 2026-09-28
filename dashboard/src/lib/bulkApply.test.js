@@ -7,6 +7,7 @@ import { clipStateToParams, buildClipParams, buildBulkPlan } from './bulkApply.j
 test('clipStateToParams uses saved state when present', () => {
   const state = {
     reframeMode: 'object',
+    reframeConfirmed: true,
     toggles: { smartcut: true, hook: false, subtitles: true, logo: false },
     subtitleParams: { mode: 'classic' },
     hookParams: { text: 'A', text_color: '#fff' },

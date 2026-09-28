@@ -292,7 +292,7 @@ the dashboard Settings tab (persisted in `data/config.json`, git-ignored).
 The full operational env-var reference (REFRAME_*, AE_*, CLIPPYME_*,
 DEEPGRAM_*, ELEVENLABS_*, ZERNIO_*, server knobs) lives in `.env.example`
 (commented, with defaults) and the README table — keep those two in sync when
-adding a knob. `GEMINI_MODEL` defaults to `gemini-3.5-flash`; per-job override
+adding a knob. `GEMINI_MODEL` defaults to `gemini-3.6-flash`; per-job override
 via `--model` / `ProcessRequest.model` (regex-validated against argv
 injection).
 

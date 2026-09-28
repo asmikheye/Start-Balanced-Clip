@@ -152,16 +152,16 @@ test('YouTube-only publish renders only the actual target platform', async () =>
   const shorts = await screen.findByRole('button', { name: 'Shorts' });
   expect(shorts.getAttribute('aria-pressed')).toBe('false');
   fireEvent.click(shorts);
+  expect(container.querySelectorAll('.plats .plat')).toHaveLength(3);
+  expect(screen.getByRole('button', { name: 'Shorts' })).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByRole('button', { name: 'TikTok' })).toHaveAttribute('aria-pressed', 'false');
+  expect(screen.getByRole('button', { name: 'Reels' })).toHaveAttribute('aria-pressed', 'false');
   fireEvent.click(screen.getByRole('button', { name: 'Publish Now' }));
 
   await waitFor(() => expect(publishClip).toHaveBeenCalledTimes(1));
   expect(publishClip.mock.calls[0][2].platforms).toEqual([
     { platform: 'youtube', accountId: 'yt-only' },
   ]);
-  expect(container.querySelectorAll('.pplats .pp')).toHaveLength(1);
-  expect(container.querySelector('.pplats i.yt')).toBeTruthy();
-  expect(container.querySelector('.pplats i.tiktok')).toBeNull();
-  expect(container.querySelector('.pplats i.ig')).toBeNull();
 });
 
 test('successful publish exits uploading and Close works under React StrictMode', async () => {
