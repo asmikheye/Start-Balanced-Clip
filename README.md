@@ -1,455 +1,567 @@
 <a id="readme-top"></a>
 
 <div align="center">
-  <img src="dashboard/public/logo.svg" alt="ClippyMe logo" width="90" />
-
+  <img src="dashboard/public/logo.svg" alt="Логотип ClippyMe" width="96" />
   <h1>ClippyMe</h1>
-
-  <p><b>Self-hosted AI pipeline that turns long videos (YouTube or upload) into viral 9:16 vertical shorts.</b></p>
-
+  <p><strong>Локальная AI-платформа, которая превращает длинные видео в готовые вертикальные клипы.</strong></p>
   <p>
-    <img src="https://img.shields.io/github/license/fralapo/clippyme?style=flat-square&color=3b82f6" alt="MIT license" />
-    <img src="https://img.shields.io/badge/python-3.11-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.11" />
+    <img src="https://img.shields.io/github/license/asmikheye/Start-Balanced-power?style=flat-square&color=0a81d9" alt="Лицензия MIT" />
+    <img src="https://img.shields.io/badge/Python-3.11-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.11" />
     <img src="https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white" alt="FastAPI" />
     <img src="https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=black" alt="React 18" />
     <img src="https://img.shields.io/badge/Docker-ready-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker ready" />
-    <img src="https://img.shields.io/github/stars/fralapo/clippyme?style=flat-square&color=eab308" alt="GitHub stars" />
   </p>
-
   <p>
-    <a href="#quick-start-docker">Quick start</a> ·
-    <a href="#configuration">Configuration</a> ·
-    <a href="#api">API</a> ·
-    <a href="#security-posture">Security</a> ·
-    <a href="https://github.com/fralapo/clippyme/issues">Report a bug</a>
+    <a href="#быстрый-запуск">Быстрый запуск</a> ·
+    <a href="#какие-api-нужны">API-ключи</a> ·
+    <a href="#как-пользоваться">Как пользоваться</a> ·
+    <a href="#rest-api">REST API</a> ·
+    <a href="#решение-проблем">Решение проблем</a>
   </p>
 </div>
 
-Fork of OpenShorts, hardened and extended: cloud-or-local transcription, Gemini viral-moment detection, active-speaker 9:16 reframing, compose-on-download editing, and one-click multi-platform scheduling.
+![ClippyMe превращает длинное видео в вертикальные клипы](docs/images/clippyme-hero.png)
 
-> Status: personal/self-hosted project. Both published ports bind to **loopback by default** (`CLIPPYME_BIND=127.0.0.1`); opening them to a LAN (`CLIPPYME_BIND=0.0.0.0`) is a deliberate choice — pair it with `CLIPPYME_API_TOKEN` so every API request needs the shared secret. **Do not expose it to the public internet** without a reverse proxy terminating TLS in front.
+> Иллюстрация для проекта создана через OpenAI ImageGen. Ниже приведён настоящий скриншот локально запущенного интерфейса.
 
-<details>
-<summary><b>Table of contents</b></summary>
+ClippyMe принимает ссылку YouTube, Twitch или Kick либо локальный видеофайл, извлекает речь, находит наиболее сильные фрагменты, аккуратно обрезает их, переводит кадр в нужное соотношение сторон, добавляет субтитры, хук, цветокоррекцию и логотип. Готовые клипы можно скачать, отредактировать, опубликовать сразу или поставить в расписание.
 
-- [What it does](#what-it-does)
-- [Stack](#stack)
-- [Quick start (Docker)](#quick-start-docker)
-- [Local development (no Docker)](#local-development-no-docker)
-- [Configuration](#configuration)
-- [Repository layout](#repository-layout)
-- [API](#api)
-- [Editing toggles (compose-on-download)](#editing-toggles-compose-on-download)
-- [Reframing](#reframing)
-- [Publishing (Zernio)](#publishing-zernio)
-- [Security posture](#security-posture)
-- [CPU vs GPU](#cpu-vs-gpu)
-- [Acknowledgements](#acknowledgements)
+Проект работает локально и рассчитан прежде всего на self-hosted-установку. Исходные видео, настройки и API-ключи не требуется передавать стороннему владельцу сервиса; облачным провайдерам отправляются только данные, необходимые выбранной функции.
 
-</details>
+## Содержание
 
----
+- [Что умеет ClippyMe](#что-умеет-clippyme)
+- [Как устроена обработка](#как-устроена-обработка)
+- [Системные требования](#системные-требования)
+- [Быстрый запуск](#быстрый-запуск)
+- [Какие API нужны](#какие-api-нужны)
+- [Как пользоваться](#как-пользоваться)
+- [Режимы кадрирования](#режимы-кадрирования)
+- [Редактор клипа](#редактор-клипа)
+- [Live Monitor](#live-monitor)
+- [Публикация через Zernio](#публикация-через-zernio)
+- [Хранение данных](#хранение-данных)
+- [Настройка через переменные окружения](#настройка-через-переменные-окружения)
+- [Запуск без Docker](#запуск-без-docker)
+- [REST API](#rest-api)
+- [Безопасность](#безопасность)
+- [Тестирование](#тестирование)
+- [Решение проблем](#решение-проблем)
+- [Структура репозитория](#структура-репозитория)
 
-## What it does
+## Что умеет ClippyMe
 
-Given a video URL or upload, ClippyMe runs the following pipeline end-to-end:
+- Принимает одну ссылку, пакет до 20 ссылок или загруженные видеофайлы.
+- Загружает видео через `yt-dlp`; для возрастных и региональных ограничений поддерживает `cookies.txt` и профиль Firefox.
+- Расшифровывает речь через Deepgram Nova-3, ElevenLabs Scribe или локальный Faster-Whisper.
+- Определяет вирусные моменты через Gemini и оценивает силу начала, эмоциональную отдачу, цитируемость, самостоятельность и плотность фрагмента.
+- Работает без Gemini: TextTiling делит расшифровку на тематические фрагменты локально.
+- Уточняет границы клипа по словам, предложениям и ближайшим участкам тишины.
+- Создаёт видео `9:16`, `1:1` или `16:9`.
+- Поддерживает четыре режима камеры: Director, Auto, Subject и Off/letterbox.
+- Удаляет паузы и слова-паразиты с помощью Smart Cut.
+- Добавляет караоке- или классические субтитры, текстовый хук, логотип, баннер автора и цветовой пресет.
+- Позволяет вручную исключать реплики из транскрипта или описать правку обычным текстом.
+- Ставит задания в очередь, умеет ставить их на паузу, продолжать, остановить с сохранением результата или отменить с удалением.
+- Сохраняет контрольные точки и возобновляет работу после временной ошибки или перезапуска backend.
+- Проверяет результат через `ffprobe`: аудио/видео, длительность, геометрию, чёрные и зависшие кадры, громкость.
+- Публикует и планирует клипы для TikTok, Instagram и YouTube через Zernio.
+- Следит за каналами YouTube, Twitch и Kick в режиме Live Monitor.
 
-1. **Download** with `yt-dlp` (Deno-based JS runtime to bypass YouTube bot detection, optional cookies for age-gated content).
-2. **Transcribe** with one of three providers, chosen in Settings: **Deepgram Nova-3** by default (multi-language, code-switching EN/IT), **ElevenLabs Scribe** (emits `(laughter)`/`(applause)` audio-event tags that feed the viral prompt as a free emotional-payoff signal, with an optional Voice Isolator pre-pass for noisy sources), or local **Faster-Whisper**. Both cloud providers fall back to Faster-Whisper on any failure, so a bad key never breaks a job. The video is stripped to a mono-16 kHz FLAC first, so only audio is uploaded/decoded (a few MB instead of the full mp4). Cached on disk for 7 days keyed by URL hash.
-3. **Detect viral moments** with **Google Gemini** (`gemini-3.6-flash` by default). A 5-axis viral_score rubric (HOOK_STRENGTH, EMOTIONAL_PAYOFF, QUOTABILITY, SELF_CONTAINED, DENSITY) plus a 5-level robust JSON parser tolerates malformed model output. **No-AI fallback:** if no Gemini key is set or the call fails, the transcript is topic-segmented into several clips by dependency-light lexical **TextTiling** (ported from [ClipsAI](https://github.com/ClipsAI/clipsai)) instead of dumping the whole video as one clip, heuristic, not viral-ranked, but offline and free. **Clean clip edges:** each selected `[start, end]` is then snapped to transcript boundaries, first to the nearest **word** edge, then extended to the surrounding **sentence** (start back to the sentence onset, end forward to the sentence-final word) so a clip never opens or closes mid-word or mid-sentence. The sentence pass is asymmetric and clamped (≤60 s, no overlap with a neighbouring clip), guards against false sentence-ends (abbreviations, decimals, acronyms), and gracefully no-ops on unpunctuated transcripts, so it is never worse than the word-only snap. A final **waveform** pass then nudges each edge into the nearest actual audio **silence trough** (ffmpeg `silencedetect`) so a cut never clips a word's attack or release, moving only toward quiet, and a no-op when no silence sits near the edge.
-4. **Reframe to 9:16** with active-speaker tracking: YOLOv8 person detection + MediaPipe FaceMesh mouth-aspect-ratio (MAR) variance to pick who is speaking, then a smoothed cameraman that adapts speed and zoom per scene. Hardened against messy real-world inputs: variable-frame-rate normalization, audio `start_time` compensation (YouTube A/V desync), and corrupt-frame resilience, all no-ops on clean sources.
-5. **Post-process** each clip: Ken Burns auto-zoom (1.0→1.05×), EBU R128 audio normalization to −14 LUFS, automatic cover frame selection. Every rendered mp4 is written with a leading `moov` atom (`+faststart`), so it starts playing in the browser before the full file downloads and uploads cleanly to social. Every render and compose pass shares one near-visually-lossless libx264 setting (CRF 18, `CLIPPYME_X264_CRF`), so the stacked re-encodes don't compound into soft output; the final mux and download copy are stream-copy/lossless.
-6. **Optional editing** at download time (compose-on-demand): a **Colour grade** preset (warm_cinematic / cool_crisp / neutral_punch / vivid_pop), **Smart Cut** (filler-word + silence removal via auto-editor v3 timeline + audio polish, plus a separate manual transcript trim and a conversational AI trim), **Hook** text overlay (Pillow + emoji, with Instagram-Stories-style banner / colours / outline / font, defaulting to bannerless white Anton with a thin black outline), **Subtitles** (6 ASS karaoke presets or classic SRT with a live preview), and a **Brand logo** watermark. The per-clip editor is a tabbed modal; settings can be applied to one clip, copied to all clips, or staged across a multi-select. Custom subtitle/hook fonts and the logo are uploaded once in Settings.
-7. **Publish or schedule** to TikTok / Instagram / YouTube via **Zernio**, with a SmartScheduler that picks Italian-prime-time slots, avoids same-day collisions, and (when scheduling) spreads one clip per day to stay under per-platform daily caps. Any residual Zernio daily-limit 429 is surfaced verbatim per clip.
+## Как устроена обработка
 
-While a job runs you stay in control:
+```text
+Ссылка или файл
+      │
+      ▼
+Загрузка / проверка входного видео
+      │
+      ▼
+Извлечение mono 16 kHz FLAC → транскрипция
+      │
+      ▼
+Gemini-анализ или локальный TextTiling
+      │
+      ▼
+Уточнение границ по словам, предложениям и тишине
+      │
+      ▼
+Кадрирование Director / Auto / Subject / Letterbox
+      │
+      ▼
+Нормализация звука, zoom, обложка и контроль качества
+      │
+      ▼
+Редактирование → скачивание или публикация
+```
 
-- **Edit clips as they finish**: completed clips stream into the full editor (toggles, disable/delete, publish) while later ones are still rendering; no need to wait for the whole job.
-- **Pause / Resume / Stop**: suspend and resume the running job, **Stop & keep** to end early but retain the clips finished so far, or **Discard** to kill and delete everything.
-- **Pick the AI model per job**: override the Gemini model for a single run from the Clip Options panel (or set the default, with live model discovery, in Settings).
+Очередь выполняет устойчивый оркестратор. Он проводит preflight-проверку, атомарно сохраняет состояние задания, повторяет только временные сбои и использует уже готовые загрузку, транскрипт и клипы при повторном старте.
 
----
+## Системные требования
 
-## Stack
+Рекомендуемый способ — Docker Compose.
 
-| Layer | Tech |
-|---|---|
-| Backend | Python 3.11, FastAPI, Pydantic v2, asyncio queue |
-| Pipeline | yt-dlp · Deepgram REST · ElevenLabs Scribe REST · Faster-Whisper · PySceneDetect · YOLOv8 (Ultralytics) · MediaPipe · ffmpeg · auto-editor (Nim binary) · Pillow |
-| AI | Google Gemini (viral detection) · Deepgram Nova-3 / ElevenLabs Scribe (transcription) |
-| Frontend | React 18 · Vite 6 · Tailwind CSS v4 · lucide-react · custom toasts/primitives |
-| Publishing | Zernio multi-platform API |
-| Deploy | Docker Compose (CPU multi-arch + optional NVIDIA GPU profile) |
+- Windows 10/11, macOS или Linux.
+- [Docker Desktop](https://docs.docker.com/desktop/) с Docker Compose 2.24 или новее.
+- Git.
+- Не менее 8 ГБ RAM; 16 ГБ удобнее для локального Whisper.
+- Достаточно места для исходника, промежуточных файлов и готовых клипов.
+- NVIDIA GPU необязательна. CPU-режим работает на x86_64, ARM64 и Apple Silicon.
 
----
+На Windows включите WSL 2 при установке Docker Desktop. Для GPU-режима нужны совместимые драйверы NVIDIA.
 
-## Quick start (Docker)
+## Быстрый запуск
 
-```bash
-git clone https://github.com/fralapo/clippyme.git
-cd clippyme
+### Уже есть локальная копия `M:\clippyme`
+
+```powershell
+Set-Location M:\clippyme
+git fetch origin
+git switch codex/staged-hardening
+git pull --ff-only
 docker compose up --build
 ```
 
-- Backend: http://localhost:8000
-- Frontend: http://localhost:5175
+### Чистая установка из GitHub
 
-Open the dashboard, drop in a YouTube URL or upload a file, and watch the pipeline run live.
+```powershell
+git clone https://github.com/asmikheye/Start-Balanced-power.git clippyme
+Set-Location .\clippyme
+git switch codex/staged-hardening
+docker compose up --build
+```
 
-> **First run after a pull** that touches `requirements.txt` or `package.json`: `docker compose down -v && docker compose up --build` to clear the stale anonymous volume on `/app/node_modules`.
+После запуска откройте:
 
-### NVIDIA GPU profile
+- интерфейс: <http://localhost:5175>;
+- backend: <http://localhost:8000>;
+- health-check: <http://localhost:8000/api/health>.
 
-```bash
+Первый запуск дольше следующих: Docker собирает образ и загружает зависимости/модели. Остановить приложение можно клавишами `Ctrl+C`, а затем командой:
+
+```powershell
+docker compose down
+```
+
+Данные сохраняются в `data/`, поэтому обычный `docker compose down` их не удаляет.
+
+### NVIDIA GPU
+
+```powershell
 docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build
 ```
 
-### Production frontend (optional)
+### Production-frontend через nginx
 
-```bash
+```powershell
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build
 ```
 
-Swaps the dashboard from the Vite dev server to a static `vite build` served by **nginx** (same port 5175, same loopback default; the nginx proxy mirrors the dev proxy with 600 s timeouts for long composes and unbuffered upload/video streaming). The default `docker compose up` dev workflow (HMR + bind mount) is untouched. Requires Docker Compose ≥ 2.24.
+В этом варианте React собирается заранее и отдаётся через nginx. Backend и порты остаются прежними.
 
----
+## Какие API нужны
 
-## Local development (no Docker)
+Для первого запуска обязательных платных API нет:
 
-```bash
-# Backend
+- выберите `Whisper`, чтобы транскрипция выполнялась локально;
+- без Gemini программа применит локальное тематическое разбиение TextTiling;
+- без Zernio готовые файлы можно скачивать вручную.
+
+Облачные ключи дают более быстрый или более функциональный режим.
+
+| Доступ | Для чего | Обязателен | Где получить |
+|---|---|---:|---|
+| `GEMINI_API_KEY` | Поиск сильных моментов, AI Trim, названия и описания | Нет, есть TextTiling | [Google AI Studio](https://aistudio.google.com/apikey) · [документация](https://ai.google.dev/gemini-api/docs/api-key) |
+| `DEEPGRAM_API_KEY` | Быстрая транскрипция Nova-3 и diarization | Нет | [Deepgram Console](https://console.deepgram.com/) · [создание ключа](https://developers.deepgram.com/docs/create-additional-api-keys) |
+| `ELEVENLABS_API_KEY` | Scribe, отметки смеха/аплодисментов, удаление шума | Нет | [ElevenLabs API Keys](https://elevenlabs.io/app/settings/api-keys) · [документация](https://elevenlabs.io/docs/overview/administration/workspaces/api-keys) |
+| `HF_TOKEN` | Gated-модели Hugging Face и diarization Whisper | Только для соответствующего режима | [Hugging Face Tokens](https://huggingface.co/settings/tokens) · [документация](https://huggingface.co/docs/hub/security-tokens) |
+| Twitch Client ID/Secret | Отслеживание Twitch в Live Monitor | Только для Twitch Monitor | [Twitch Developer Console](https://dev.twitch.tv/console/apps) · [регистрация приложения](https://dev.twitch.tv/docs/authentication/register-app) |
+| Zernio API key | Публикация/расписание TikTok, Instagram и YouTube | Только для публикации | [Zernio](https://zernio.com/) · [Quickstart API](https://docs.zernio.com/) |
+| YouTube cookies | Возрастные, региональные или bot-protected ролики | Иногда | Экспорт Netscape `cookies.txt` либо read-only-профиль Firefox |
+
+### Куда вводить ключи
+
+1. Запустите ClippyMe.
+2. Откройте `Settings`.
+3. Заполните нужные поля в блоках `API keys` и `Publishing`.
+4. Нажмите `Save`.
+
+Ключи сохраняются локально в `data/config.json`. Файл исключён из Git и создаётся с ограниченными правами доступа. Не вставляйте реальные ключи в README, `.env.example`, issue, commit или скриншот.
+
+Альтернативный способ — создать `.env` из примера:
+
+```powershell
+Copy-Item .env.example .env
+notepad .env
+docker compose up --build
+```
+
+Минимальный облачный набор: `GEMINI_API_KEY` + один провайдер транскрипции (`DEEPGRAM_API_KEY` или `ELEVENLABS_API_KEY`). Если облачная транскрипция не сработает, pipeline автоматически попробует Faster-Whisper.
+
+### Особенности ключей
+
+**Gemini.** Создайте ключ в Google AI Studio и добавьте его в `Settings → Gemini`. Модель можно сменить глобально или только для одного задания. Для квотных ошибок предусмотрена цепочка fallback-моделей.
+
+**Deepgram.** Создайте Project API Key. В ClippyMe используется Nova-3; `multi` подходит для смешанной речи, а конкретный язык обычно повышает точность.
+
+**ElevenLabs.** Создайте ключ с доступом к Speech-to-Text. Scribe способен возвращать audio events — например, смех и аплодисменты. Voice Isolator включается отдельно и может расходовать дополнительную квоту.
+
+**Hugging Face.** Для скачивания моделей достаточно read-токена. Для pyannote примите условия [speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1), соберите образ с `ENABLE_WHISPER_DIARIZE=1` и передайте `HF_TOKEN`:
+
+```powershell
+$env:ENABLE_WHISPER_DIARIZE = "1"
+$env:HF_TOKEN = "hf_..."
+docker compose build --no-cache backend
+docker compose up
+```
+
+**Twitch.** Зарегистрируйте приложение, включив 2FA в аккаунте Twitch. Скопируйте Client ID и создайте Client Secret. Они нужны только серверному Live Monitor.
+
+**Zernio.** Создайте ключ, подключите социальные аккаунты, затем в `Settings → Publishing` вставьте ключ и нажмите `Discover from Zernio`.
+
+## Как пользоваться
+
+![Экран создания задания ClippyMe](docs/images/interface-create.jpg)
+
+### 1. Добавьте источник
+
+На вкладке `Create` выберите:
+
+- `Single` — одна ссылка или один файл;
+- `Batch` — несколько URL или файлов;
+- `URL` — YouTube, Twitch или Kick;
+- `Upload` — локальный видеофайл.
+
+Поле AI instructions необязательно. Примеры: «найди самые смешные моменты», «пропусти вступление», «сосредоточься на демонстрации продукта».
+
+### 2. Настройте Recipe
+
+- `Clips per video`: автоматическое количество или фиксированный лимит.
+- `Aspect ratio`: `9:16`, `1:1` или `16:9`.
+- `Find viral moments`: Gemini-анализ; при отключении обрабатывается всё видео.
+- `Gemini model`: модель только для текущего задания.
+- `Reframe`: Director, Auto, Subject или Off.
+- `Smart cut`: удаление тишины и слов-паразитов.
+- `Subtle zoom`: мягкий Ken Burns zoom `1.0 → 1.05`.
+- `Spoken language`: точный язык либо мультиязычный режим.
+- `Subtitles`: караоке или классические подписи.
+- `Text hooks`: короткий текст в начале клипа.
+- `Brand logo`: наложение загруженного PNG.
+- `Colour grade`: Warm, Cool, Punch или Vivid.
+
+Текущую комбинацию можно сохранить как собственный preset.
+
+### 3. Следите за обработкой
+
+- `Pause` — приостановить процесс;
+- `Resume` — продолжить;
+- `Stop & keep` — остановить, но оставить готовые клипы;
+- `Discard/Cancel` — отменить и удалить результаты.
+
+Готовые клипы появляются по мере рендера — ждать окончания всего задания необязательно.
+
+### 4. Проверьте результат
+
+На карточке клипа доступны просмотр, редактирование, скачивание, отключение/удаление и публикация. В `History` можно открыть прошлое задание, восстановить его состояние или удалить вместе с файлами.
+
+## Режимы кадрирования
+
+| Режим | Что делает | Когда выбирать |
+|---|---|---|
+| `Director` | Использует diarization и делает переключения виртуальной камеры между говорящими | Интервью, подкасты, диалоги |
+| `Auto` | Ищет лица/людей, оценивает активного говорящего и выбирает сценовую стратегию | Универсальный режим с людьми |
+| `Subject` | FrameShift-кадрирование по лицу, человеку и весам объектов | Демонстрации, товары, животные, главный объект |
+| `Off` | Не обрезает кадр; помещает его целиком между чёрными полями | Когда нельзя терять края экрана |
+
+Comfort mode включён по умолчанию: внутри сцены камера стремится оставаться неподвижной. Для каждой сцены фиксируется безопасный crop и zoom; при большой активности выбирается более широкий кадр.
+
+## Редактор клипа
+
+Изменения применяются в порядке:
+
+```text
+Цветокоррекция → Субтитры → Smart Cut/Trim → Хук → Логотип → Баннер
+```
+
+- **Reframe:** повторное переключение режима по сохранённому `source_*.mp4`.
+- **Captions:** караоке ASS или классические субтитры; шрифт, размер, цвет, контур, фон и позиция. Свои `.ttf`/`.otf` загружаются в Settings.
+- **Hook:** короткий заголовок, обычно на первые четыре секунды; настраиваются шрифт, цвет, фон и обводка.
+- **Smart Cut:** автоматическое удаление тишины и слов-паразитов.
+- **Trim:** ручное исключение строк транскрипта.
+- **AI Trim:** преобразование обычной текстовой инструкции в диапазоны удаления через Gemini.
+- **Logo:** прозрачный PNG поверх клипа.
+- **Banner:** платформа и имя автора; в letterbox-режиме размещается в свободной полосе.
+- **Grade:** Warm, Cool, Punch или Vivid до наложения текста.
+
+Изменения можно применить к одному клипу, ко всем или к выбранной группе. Композиция выполняется при применении правок, скачивании или перед публикацией.
+
+## Live Monitor
+
+Live Monitor автоматически проверяет каналы и создаёт клипы из новых материалов:
+
+- Twitch live и VOD;
+- Kick live и VOD;
+- YouTube — новые длинные ролики из RSS; Shorts исключаются.
+
+Для monitor задаются канал, режим, частота проверки, максимальное количество клипов, фиксированный или автоматический отбор, минимальная viral score, Smart Cut, letterbox zoom, публикация и расписание.
+
+Несколько каналов могут работать одновременно. Очередь публикации общая, поэтому SmartScheduler не ставит посты слишком близко. Публикацию можно поставить на паузу; ожидающие клипы сохраняются и отправляются после продолжения или перезапуска.
+
+## Публикация через Zernio
+
+ClippyMe отправляет клипы в TikTok, Instagram и YouTube через Zernio:
+
+- `Publish now` — сразу;
+- ручная дата и время;
+- `Prime Time` — автоматические слоты;
+- один или несколько клипов;
+- отдельные тексты/названия для платформ;
+- повторная композиция перед загрузкой, чтобы файл совпадал с preview.
+
+По умолчанию новые расписания используют `Europe/Istanbul`. Ответы Zernio, включая дневной лимит платформы, показываются без скрытия исходного сообщения.
+
+## Хранение данных
+
+| Путь | Содержимое |
+|---|---|
+| `data/config.json` | API-ключи и настройки |
+| `data/cookies.txt` | YouTube cookies |
+| `data/live_monitor.json` | Состояние Live Monitor |
+| `data/jobs_journal.json` | Активные задания без секретов |
+| `data/cache/` | Кэш транскриптов |
+| каталоги заданий | Клипы, исходные фрагменты и метаданные |
+
+Конфигурация и runtime-артефакты исключены из Git. Удаление задания из `History` удаляет связанные файлы backend; закрытие браузера этого не делает.
+
+## Настройка через переменные окружения
+
+Полный список находится в [`.env.example`](.env.example). Основные параметры:
+
+| Переменная | По умолчанию | Назначение |
+|---|---|---|
+| `GEMINI_API_KEY` | пусто | Gemini API |
+| `GEMINI_MODEL` | `gemini-3.6-flash` | Основная модель анализа |
+| `TRANSCRIPTION_PROVIDER` | `deepgram` | `deepgram`, `elevenlabs` или `whisper` |
+| `DEEPGRAM_API_KEY` | пусто | Deepgram Nova-3 |
+| `ELEVENLABS_API_KEY` | пусто | ElevenLabs Scribe |
+| `HF_TOKEN` | пусто | Hugging Face модели |
+| `CLIPPYME_BIND` | `127.0.0.1` | Адрес публикации портов Docker |
+| `CLIPPYME_API_TOKEN` | пусто | Защита `/api` при доступе по LAN |
+| `MAX_CONCURRENT_JOBS` | `5` | Одновременные задания |
+| `MAX_FILE_SIZE_MB` | `16384` | Максимальный upload, МБ |
+| `GPU_RUNTIME` | `cpu` | `cpu` или `nvidia` |
+| `CLIPPYME_X264_CRF` | `18` | Качество H.264; меньше — лучше и больше файл |
+| `CLIPPYME_X264_PRESET` | `medium` | Скорость/эффективность x264 |
+| `CLIPPYME_JOB_MAX_ATTEMPTS` | `3` | Попытки временно упавшего задания |
+| `CLIPPYME_MAX_CLIPS` | пусто | Глобальный лимит клипов |
+| `CLIPPYME_MIN_FREE_DISK_GB` | `1` | Запас свободного места |
+| `REFRAME_COMFORT` | `1` | Стабильная камера |
+| `REFRAME_STATIC_AUTO` | включено | Фиксированный crop на сцену |
+| `ZERNIO_DEFAULT_TZ` | `Europe/Istanbul` | Часовой пояс публикаций |
+
+После изменения build-параметров пересоберите контейнер:
+
+```powershell
+docker compose down
+docker compose up --build
+```
+
+## Запуск без Docker
+
+Нужны Python 3.11, Node.js, npm, `ffmpeg`, `ffprobe`, системные библиотеки OpenCV/MediaPipe и остальные зависимости.
+
+Backend:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
 pip install -r requirements.txt
-pip install -e .                                       # registers the clippyme src-layout package
+pip install -e .
 python -m uvicorn clippyme.api.app:app --reload --port 8000
-
-# Frontend (separate terminal)
-cd dashboard && npm install && npm run dev
-
-# Pipeline CLI (one-shot, no API)
-python -m clippyme.pipeline.main <url_or_path> [--instructions "focus on hooks"] \
-                                                [--reframe-mode auto|subject|disabled] \
-                                                [--no-zoom]
 ```
 
----
+Frontend в отдельном терминале:
 
-## Configuration
-
-All API keys, model selection, and cookies are managed **from the dashboard Settings tab** and persisted to `data/config.json` (mode `0600`, git-ignored). No `.env` file required.
-
-| Key | Required for | Notes |
-|---|---|---|
-| `GEMINI_API_KEY` | Viral moment detection | Default model `gemini-3.6-flash`; override per job or set the default in Settings (live model discovery). |
-| `GEMINI_FALLBACK_MODELS` | Automatic quota fallback | Default: `gemini-3.5-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite`. Each new job retries the preferred `GEMINI_MODEL` first. |
-| `DEEPGRAM_API_KEY` | Cloud transcription (default) | Falls back to local Faster-Whisper if missing. |
-| `ELEVENLABS_API_KEY` | Alternative cloud transcription (Scribe) | Adds audio-event tags + optional Voice Isolator; also falls back to Faster-Whisper. |
-| `HUGGINGFACE_TOKEN` | Optional gated models for Whisper | |
-| Zernio | Social publishing | Per-platform account IDs auto-discovered via "Discover from Zernio". |
-| Cookies | YouTube age-gated / region-locked content | Upload a Netscape `cookies.txt` from the Settings tab. Stored at `data/cookies.txt`, mode `0600`, max 10 MB. |
-
-For automatic Firefox cookies in Docker, mount a Firefox profile read-only and set
-`CLIPPYME_FIREFOX_PROFILE` to the mount target in the backend service. ClippyMe
-reads fresh cookies through yt-dlp on each download without exporting a cookie
-file. An uploaded `data/cookies.txt` takes precedence. The tracked
-`docker-compose.override.example.yml` uses the host variable
-`CLIPPYME_FIREFOX_PROFILE_HOST_PATH`; set it in `.env` or the shell before
-starting Compose. This keeps the same Firefox flow portable across machines
-without committing a user-specific path. The local override is ignored by Git
-and the Firefox profile must contain `cookies.sqlite`. A Netscape `cookies.txt`
-upload is supported as the cross-browser alternative; direct Chrome or Edge
-profile mounting is not implemented.
-
-If Zernio's default API host (`zernio.com`) fails the TLS handshake on your
-network, the local override can set `ZERNIO_BASE_URL` to
-`https://api.zernio.com/api/v1`. Confirm the API key and connected account with
-Settings → Discover from Zernio before retrying publication.
-
-Runtime env overrides (rarely needed):
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `CLIPPYME_BIND` | `127.0.0.1` | Host interface both published ports (8000/5175) bind to. `0.0.0.0` exposes the app to the LAN — deliberate choice only. |
-| `CLIPPYME_API_TOKEN` | _(unset)_ | Optional shared-secret auth: when set, every `/api` request must carry it (`X-API-Token` or `Authorization: Bearer`). The dashboard stores it in Settings → API token. Unset = no-op. |
-| `TRANSCRIPTION_PROVIDER` | `deepgram` | Or `elevenlabs` (Scribe), or `whisper` to force local. |
-| `ELEVENLABS_AUDIO_ISOLATION` | `false` | Run the ElevenLabs Voice Isolator before ASR to strip background noise/music on noisy sources. |
-| `CLIPPYME_TRANSCRIBE_AUDIO_ONLY` | `true` | Strip to audio-only FLAC before transcription; `false` sends the full video. |
-| `CLIPPYME_SILENCE_SNAP` | `1` | Refine clip edges to the nearest waveform silence trough (ffmpeg `silencedetect`); `0`/`false` keeps the transcript-derived edges. |
-| `DEEPGRAM_MODEL` | `nova-3` | |
-| `DEEPGRAM_LANGUAGE` | `multi` | |
-| `REFRAME_COMFORT` | `1` | Anti-nausea default (global-smooth + per-scene stationary + zoom lock). `0` = original single-pass tracker. |
-| `REFRAME_STATIC_AUTO` | on | Lock the camera per scene, zero pan, zero mid-shot zoom. `0` = eased-but-moving smoother. |
-| `REFRAME_MOTION_WIDE_THRESH` | `0.12` | How far a single subject may travel (fraction of frame) before TRACK is demoted to a static WIDE crop. |
-| `REFRAME_STATIONARY_THRESH` / `REFRAME_ZOOM_LOCK` | `0.30` / on | Comfort tuning: scene-lock threshold / one zoom level per scene. |
-| `REFRAME_SALIENT_GENERAL` | _(off)_ | Content-aware crop for faceless scenes instead of letterboxing. |
-| `REFRAME_OBJECT_WEIGHTS` | _(off)_ | Faceless scenes follow a weighted-object centroid (product/dog/car) by reusing the existing YOLO pass. `1` = curated defaults, or `dog:3,car:2` for custom weights. |
-| `REFRAME_FRAMESHIFT_WEIGHTS` | _(GUI defaults)_ | `object`-mode class weights. Defaults `face:1,person:0.8,default:0.5`; override any of those three or add a COCO class, e.g. `face:1,person:0.8,default:0.5,dog:3`. |
-| `YTDLP_PLAYER_CLIENTS` | `default,tv+tv_embedded,web_safari` | Comma-separated yt-dlp player-client fallback chain; each entry is `default` (no override) or a `+`-joined client list. On a 403 / format-negotiation failure the next entry is tried (5 s apart); page-level blocks (bot wall, private/removed, geo) stop the chain immediately. |
-| `CLIPPYME_X264_CRF` | `18` | Shared libx264 quality for every render/compose encode (near-visually-lossless; lower = higher quality + bigger files, 0–51). Stops the stacked re-encodes from compounding into soft output. |
-| `CLIPPYME_X264_PRESET` | `medium` | Shared libx264 preset; a faster preset (e.g. `fast`) trades a little quality/size for render speed. |
-| `ZERNIO_DEFAULT_TZ` | `Europe/Rome` | |
-| `ZERNIO_MIN_GAP_SECONDS` | `5400` | SmartScheduler min spacing between posts. |
-| `TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET` | _(unset)_ | Helix app creds ([dev.twitch.tv](https://dev.twitch.tv/console/apps)) for the Twitch content monitor. Also settable in Settings. Fallback only if not stored in `data/config.json`. |
-| `MAX_FILE_SIZE_MB` | `16384` | Max local-video upload size in MB (16 GB default — long stream VODs easily exceed the old 2 GB). Raising past 16 GB behind the prod nginx frontend also requires raising `client_max_body_size` in `dashboard/nginx.conf`. |
-| `REFRAME_SMOOTHER` | _(blank)_ | `euro` switches the speaker camera to the 1€ adaptive filter; blank keeps the two-speed EMA. |
-| `REFRAME_LOST_HOLD` | `90` | Frames a lost subject is held before the camera drifts back to center (~3 s @ 30 fps). |
-| `REFRAME_LOST_DRIFT` | `0.05` | Per-frame ease rate of the drift-to-center recovery. |
-| `REFRAME_EURO_MINCUTOFF` / `REFRAME_EURO_BETA` | `0.014` / `0.0008` | 1€ smoother tuning (only when `REFRAME_SMOOTHER=euro`): smoothness floor / speed responsiveness. |
-| `REFRAME_SPRING_RESPONSE` / `REFRAME_SPRING_DAMPING` | `0.18` / `0.82` | Damped-spring smoother tuning (only when `REFRAME_SMOOTHER=spring`): acceleration / velocity decay. |
-| `REFRAME_GLOBAL_SMOOTH` / `REFRAME_GLOBAL_METHOD` | _(off)_ / `savgol` | Opt-in 2-pass trajectory smoothing. ⚠️ `kalman`/`l2` only take effect with `REFRAME_STATIC_AUTO=0` — under the default static-auto policy each scene collapses to one locked crop and the trajectory smoother never runs. |
-| `REFRAME_SPEAKER_SWITCH_MARGIN` | `1.25` | Challenger/current score ratio required before the active-speaker camera switches identity (hysteresis against ping-pong cuts). |
-| `REFRAME_MIN_FACE_RATIO` | `0.10` | Ignore faces smaller than this share of the largest candidate — background heads never steal the frame. |
-| `REFRAME_DIALOGUE_GROUP` | `1` | Keep two similarly-active, separated participants in frame instead of cutting between them. |
-| `REFRAME_DIALOGUE_SCORE_RATIO` / `REFRAME_DIALOGUE_SEPARATION` | `0.88` / `0.28` | Group-framing thresholds: min second/first activity ratio, min horizontal separation (fraction of frame). |
-| `CLIPPYME_JOB_MAX_ATTEMPTS` | `3` | Worker attempts per queued job (bounded 1–10). Exit code `2` = deterministic rejection, never retried. |
-| `CLIPPYME_RENDER_QA_RETRIES` | `1` | Extra render attempts after a **critical** output-QA failure. |
-| `CLIPPYME_KEEP_CHECKPOINTS` | `0` | Keep the hidden transcript/phase checkpoints after a fully successful job. |
-| `CLIPPYME_MAX_DURATION_SECONDS` / `CLIPPYME_MAX_INPUT_GB` | _(disabled)_ | Preflight quotas: reject sources longer / larger than this before any expensive work. |
-| `CLIPPYME_MAX_ESTIMATED_COST_USD` | _(disabled)_ | Reject a job whose estimated Gemini spend exceeds this. Conservative estimate, not a billing promise. |
-| `CLIPPYME_MIN_FREE_DISK_GB` | `1` | Free space that must still remain after the estimated peak disk use. |
-| `CLIPPYME_MAX_CLIPS` | _(disabled)_ | Cap how many ranked candidates are actually rendered. |
-| `CLIPPYME_CREATOR_NAME` | _(unset)_ | Channel owner passed to the Gemini prompt so titles can name whose stream the clip is from. Set per-job by the Live Monitor; never used to attribute a quote. |
-| `CLIPPYME_MIN_VIRAL_SCORE` | _(disabled)_ | Drop clips scoring below this (1–100) before the cap — the clip count then follows the material (a weak segment can yield zero clips). Set by the Live Monitor's "Automatic" clip selection. |
-| `CLIPPYME_QA_SIGNAL` | `1` | `0` runs structural output QA only (skips black/freeze/loudness probes) on constrained hosts. |
-
----
-
-## Runtime resilience & output QA
-
-Queued jobs run through `clippyme.pipeline.orchestrator`, which wraps the proven `pipeline.main` stages with durability and verification. Full reference: [`docs/runtime-quality.md`](docs/runtime-quality.md).
-
-- **Durable lifecycle** — each job dir keeps `.clippyme_runtime.json` (owner-only phase/progress/attempt state) and `.clippyme_checkpoint/` (reusable transcript + phase artefacts). Writes are atomic and fsync'd; the `/videos` mount rejects both. A retry or a backend restart reuses the existing download, transcript, analysis and finished clips instead of redoing them.
-- **Bounded retries** — transient failures back off exponentially up to `CLIPPYME_JOB_MAX_ATTEMPTS`; exit code `2` (validation/preflight rejection) is terminal. Stop/cancel semantics are unchanged.
-- **Preflight** — before transcription or Gemini analysis, the source is probed and runtime, peak disk and Gemini tokens/cost are estimated, so a job that would blow a quota is rejected up front rather than halfway through.
-- **Output QA** — every temporary render is probed (size, duration, stream presence, aspect, black/frozen-frame ratio, mean/peak audio) *before* it atomically replaces the public clip. Structural defects trigger a bounded re-render; signal findings stay as warnings in metadata rather than deleting a usable clip.
-- **Telemetry** — `GET /api/status/{job_id}` may carry `result.operations` (phase, attempt, ETA, verified/failed clips, host CPU/RAM/disk, per-stage durations, QA summaries), surfaced in the processing view. The job log keeps a single replaceable `[runtime]` line so polling can't grow it without bound.
-- **Regression suites** — `python -m clippyme.pipeline.quality_suite <manifest>.json --output report.json` replays the production QA policy over versioned fixture clips; exit `0` pass, `1` quality regression, `2` invalid/unsafe manifest. Manifest paths are confined to the manifest directory, so it is safe to run in CI.
-
----
-
-## Repository layout
-
-Backend uses an **`src/`-layout** Python package; frontend is a separate Vite app. Tests live at the root.
-
-```
-src/clippyme/
-  netutil.py          Bounded DNS resolution shared by the SSRF guards (no global socket state)
-  api/                FastAPI surface (thin: validate → domain helper → JSON)
-    app.py            Thin FastAPI layer: job-lifecycle routes, middleware, static mounts, lifespan
-    config_routes.py  Config-family APIRouter (keys/cookies/fonts/logo/zernio/models), include_router'ed by app.py
-    schemas.py        Pydantic request models (strict validation)
-    security.py       Trusted-origin / rate-limit / API-token gates, job-id validation
-  pipeline/           Heavy lifters (main.py imports cv2/torch → pure logic lives in the *_ops modules)
-    orchestrator.py   Entrypoint for queued jobs: preflight → checkpointed main.py stages → output QA
-    main.py           CLI orchestrator: download → transcribe → Gemini → reframe → postprocess
-    preflight.py      Pre-spend probe: duration/size/disk/Gemini-cost estimate + quota rejection
-    media_qa.py       ffprobe-backed clip verification (streams, aspect, black/freeze, loudness)
-    quality_suite.py  Manifest-driven regression runner replaying the production QA policy
-    run_ops.py        Pure entrypoint helpers (output-dir resolve, cut-command argv) → host-tested
-    gemini_request.py Pure Gemini prompt template + pricing + cost/retry classification → host-tested
-    gemini_parser.py  5-level JSON parsing chain + Pydantic validation + dedupe
-    gemini_service.py List available Gemini models (bounded timeout)
-    texttiling_ops.py Lexical TextTiling topic segmentation (no-AI clip fallback, no cv2/torch → host-tested)
-    reframe.py        cv2 render orchestrator: scene strategy, frame strategies, render loops
-    reframe_track.py  Pure tracking classes (SpeakerTracker / SmoothedCameraman, no cv2 → host-tested)
-    reframe_ops.py    Pure camera/decision math (no cv2 → host-tested): smoothers, zoom, crops
-    reframe_detect.py YOLO / MediaPipe detectors
-    cut_ops.py        Pure clip-edge snapping + neighbour-bounds / transcript-snap orchestration → host-tested
-    media_probe.py    cv2-free ffprobe + A/V-sync helpers (VFR, start_time, fps)
-  domain/             Endpoint-facing business logic (never imports FastAPI; raises errors.ClippyMeError)
-    errors.py         Domain exceptions (Validation/NotFound/Conflict) mapped to HTTP by one app handler
-    clip_resolve.py   Shared resolve_clip(): job dir → metadata → clip entry → path (used by every per-clip route)
-    job_submission.py · job_runner.py · job_worker.py   Submit + per-job subprocess loop + queue dispatch/cleanup
-    job_journal.py · job_control.py · job_actions.py    Crash-safe journal + recovery, status machine, cancel/stop
-    job_results.py · job_artifacts.py   Result loaders + orchestrator command builder; atomic metadata IO
-    runtime_state.py  Durable per-job phase/progress/attempt state + checkpoint dir (atomic, fsync'd)
-    uploads.py        Local-file upload intake (size cap, safe destination paths)
-    compose.py        Grade → Subtitles → Smart Cut → Hook → Logo compose pipeline (pass-fused)
-    smartcut.py       Two-stage filler-word + audio polish (auto-editor v3 timeline)
-    smartcut_ops.py   Pure silence/filler/timeline math (host-tested), re-exported by smartcut.py
-    clip_endpoints.py · clip_edit_ai.py · clip_qa.py   Smart-cut runner + NL→drop_ranges + QA self-eval
-    subtitles.py      ASS karaoke (6 presets) + SRT + ffmpeg burn (filtergraph-escape hardened)
-    hooks.py          Text overlay (Pillow + NotoColorEmoji) w/ IG-style banner/outline/font
-    logo.py · grade.py   Brand-logo / watermark overlay + colour-grade presets
-    encode.py         Single source of x264 settings for every render pass
-    publish_service.py · history_service.py   Zernio publish flow + disk-backed job history scan
-  integrations/       External clients
-    social_publisher.py      Zernio REST + SmartScheduler + publish_clip orchestrator
-    auto_editor_updater.py   Background daily updater for the auto-editor binary
-  storage/
-    config_store.py   data/config.json read/write (mode 0600)
-
-dashboard/
-  src/
-    main.jsx                Mounts redesign/RedesignApp
-    redesign/               The live UI. RedesignApp (top-level state wiring),
-                            create / results / publish / views (Settings + History) / processing,
-                            captions.jsx (EditClipModal shell) + editTabs.jsx (per-tab bodies),
-                            subtitleControls.jsx / layerControls.jsx / hookStyle.jsx (controls shared
-                            between Create and the edit modal), realApi.js (backend client),
-                            data.js (presets/options), primitives.jsx, icon.jsx
-    hooks/                  useJobSubmission (resilient batch poller), useJobPolling, useManualTrim,
-                            useHistory, useSessionPersistence, useBackendStatus, useClipStates
-    lib/                    Pure helpers (host-tested via `npm test`): applyEdit (reprocess orchestration),
-                            pipelineStep, bulkApply, seedClipParams, trimSelection, taste
-
-fonts/                Bundled TTF fonts served via /fonts (subtitle + hook rendering)
-data/                 Persisted config, cookies, transcript cache (git-ignored)
+```powershell
+Set-Location M:\clippyme\dashboard
+npm ci
+npm run dev
 ```
 
----
+CLI без web-интерфейса:
 
-## API
+```powershell
+python -m clippyme.pipeline.main "https://example.com/video" `
+  --instructions "Найди самые сильные моменты" `
+  --reframe-mode auto
+```
 
-All routes are JSON in / JSON out. Job IDs are strict UUID4. Config endpoints require a trusted-origin client (loopback or RFC1918).
+Для обычной установки Docker надёжнее: образ уже содержит ffmpeg, ML/CV-зависимости и auto-editor.
 
-| Method | Path | Purpose |
+## REST API
+
+Если задан `CLIPPYME_API_TOKEN`, добавляйте `X-API-Token` или `Authorization: Bearer`.
+
+| Метод | Путь | Назначение |
 |---|---|---|
-| `POST` | `/api/process` | Single video (URL or upload). Accepts `reframe_mode`, per-job `model`. |
-| `POST` | `/api/batch` | Up to 20 URLs in one shot. |
-| `GET` | `/api/status/{job_id}` | Live status + logs + result (clips stream in as they finish). |
-| `POST` | `/api/pause/{job_id}` | Suspend the running job (resume-able). |
-| `POST` | `/api/resume/{job_id}` | Resume a paused job. |
-| `POST` | `/api/stop/{job_id}` | Stop early but **keep the clips finished so far**. |
-| `POST` | `/api/cancel/{job_id}` | Kill the subprocess **and discard all output**. |
-| `POST` | `/api/compose/{job_id}/{clip_index}` | Compose Grade + Subtitles + Smart Cut + Hook + Logo on demand. |
-| `POST` | `/api/smartcut/{job_id}/{clip_index}` | Smart Cut a single clip (optional `drop_ranges` for manual trim). |
-| `GET` | `/api/transcript/{job_id}/{clip_index}` | Per-clip transcript segments for the manual-trim UI. |
-| `POST` | `/api/edit-ai/{job_id}/{clip_index}` | Conversational trim: a plain-English instruction → Gemini → spans to cut. |
-| `POST` | `/api/reframe/{job_id}/{clip_index}` | Switch a clip's reframe mode. |
-| `GET` | `/api/history` | Past jobs from disk. |
-| `POST` | `/api/history/{job_id}/restore` | Reload a past job into memory. |
-| `DELETE` | `/api/history/{job_id}` | Delete from disk. |
-| `GET` | `/api/config/models` | List Gemini models (trusted origin). |
-| `POST` | `/api/config` | Persist API keys (trusted origin). |
-| `POST` | `/api/config/cookies` | Upload Netscape cookies file (trusted origin, 10 MB cap). |
-| `GET` | `/api/config/cookies/status` | Is a cookie file present? |
-| `DELETE` | `/api/config/cookies` | Remove the cookies file. |
-| `POST`/`GET`/`DELETE` | `/api/config/logo` | Upload / status / remove the brand logo PNG. |
-| `GET`/`POST`/`DELETE` | `/api/config/fonts` | List / upload / remove custom subtitle+hook fonts. |
-| `GET` | `/api/config/zernio` | Masked Zernio config. |
-| `POST` | `/api/config/zernio` | Save/update Zernio credentials. |
-| `GET` | `/api/zernio/accounts` | Discover accounts via Zernio. |
-| `POST` | `/api/publish/{job_id}/{clip_index}` | Upload + schedule a clip on TikTok/IG/YouTube. |
-| `POST` | `/api/live-monitor/start` | Start a channel monitor (kick/twitch/youtube, live/vod mode). |
-| `POST` | `/api/live-monitor/stop` | Stop one monitor (`{monitor_id}`) or all. |
-| `POST` | `/api/live-monitor/{id}/config` | Update a running monitor's settings (allow-listed fields; apply to future clips). |
-| `POST` | `/api/live-monitor/{id}/publishing` | Pause/resume Zernio auto-publish (`{"enabled": bool}`); pending clips drain on resume. |
-| `GET` | `/api/live-monitor/status` | All monitors: state, segments captured, backfill pending, clips published. |
+| `GET` | `/api/health` | Проверка backend |
+| `POST` | `/api/process` | Одно видео |
+| `POST` | `/api/batch` | Пакет до 20 источников |
+| `GET` | `/api/status/{job_id}` | Статус и прогресс |
+| `POST` | `/api/pause/{job_id}` | Пауза |
+| `POST` | `/api/resume/{job_id}` | Продолжить |
+| `POST` | `/api/stop/{job_id}` | Остановить и сохранить готовое |
+| `POST` | `/api/cancel/{job_id}` | Отменить и удалить |
+| `POST` | `/api/compose/{job_id}/{clip_index}` | Собрать слои редактора |
+| `POST` | `/api/smartcut/{job_id}/{clip_index}` | Smart Cut / ручные диапазоны |
+| `GET` | `/api/transcript/{job_id}/{clip_index}` | Транскрипт клипа |
+| `POST` | `/api/edit-ai/{job_id}/{clip_index}` | AI Trim |
+| `POST` | `/api/reframe/{job_id}/{clip_index}` | Повторное кадрирование |
+| `POST` | `/api/publish/{job_id}/{clip_index}` | Публикация через Zernio |
+| `GET` | `/api/history` | История заданий |
+| `POST` | `/api/history/{job_id}/restore` | Восстановить задание |
+| `DELETE` | `/api/history/{job_id}` | Удалить задание и файлы |
+| `POST` | `/api/live-monitor/start` | Запустить monitor |
+| `POST` | `/api/live-monitor/stop` | Остановить monitor |
+| `GET` | `/api/live-monitor/status` | Статус monitor-ов |
+| `GET/POST` | `/api/config` | Локальная конфигурация |
+| `GET/POST/DELETE` | `/api/config/cookies*` | YouTube cookies |
+| `GET/POST/DELETE` | `/api/config/fonts*` | Пользовательские шрифты |
+| `GET/POST/DELETE` | `/api/config/logo*` | Логотип бренда |
+| `GET/POST` | `/api/config/zernio` | Настройки Zernio |
 
-Static mounts: `/videos`, `/thumbnails`, `/fonts` (read-only).
+```powershell
+Invoke-RestMethod http://localhost:8000/api/health
+```
 
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
+## Безопасность
 
----
+- По умолчанию оба порта публикуются только на `127.0.0.1`.
+- Не выставляйте приложение напрямую в интернет.
+- Для LAN используйте `CLIPPYME_BIND=0.0.0.0` только в доверенной сети и задайте длинный случайный `CLIPPYME_API_TOKEN`.
+- Для интернета нужен reverse proxy с HTTPS и контролем доступа. `TRUST_PROXY=1` допустим только при одном доверенном proxy-hop.
+- Не коммитьте `.env`, `data/config.json`, `cookies.txt`, логи с ключами или приватные видео.
+- Включите Git-hook сканирования секретов:
 
-## Editing toggles (compose-on-download)
+```powershell
+git config core.hooksPath .githooks
+```
 
-Every finished clip has an **Edit & reprocess** panel, one button on the clip card opens a **tabbed modal** (Reframe · Grade · Captions · Hook · Smart Cut · Trim · Logo) that gathers all the options in one place so you set everything first and apply once, instead of the clip reprocessing on every tweak. The compose layers:
+## Тестирование
 
-- **Colour grade**: one of four ffmpeg presets (warm_cinematic / cool_crisp / neutral_punch / vivid_pop). Runs first so the overlays below keep their authored colours.
-- **Smart Cut**: auto-removes silences and filler words via auto-editor v3 timeline; falls back to ffmpeg concat demuxer if the binary is missing.
-- **Trim** (its own tab): shows the clip's transcript as a tap-to-cut checklist for hand-removing specific lines, kept separate from the automatic pass. A plain-English **AI trim** box turns an instruction like "cut the intro" into the same spans. The picked spans (`drop_ranges`) ride through download and publish; dropping a line implies the Smart Cut compose stage.
-- **Hook**: text overlay, auto-prefilled from the Gemini hook suggestion. Beyond position/size it offers **Instagram-Stories-style text styling**: a toggleable coloured banner behind the text (colour + opacity), independent text colour, an outline/stroke (None/Thin/Thick + colour), and a font choice. The default look is bannerless white **Anton** with a thin black outline. A live WYSIWYG preview sits above the controls. Supports emoji.
-- **Subtitles**: 6 viral karaoke presets (`classic_white`, `hormozi_bold`, `neon_glow`, `mrbeast_box`, `minimal_clean`, `fire_impact`) or classic SRT with font/color/position controls. The Create-tab grid (`dashboard/src/redesign/data.js`) is a cosmetic CSS preview (system fonts; highlight colours match the backend), not pixel-faithful.
-- **Brand logo**: burns an uploaded transparent PNG onto the clip (7 anchor positions × S/M/L size × opacity). Upload it once in Settings → Brand assets.
+Backend:
 
-**Apply across clips.** Each card has an **Apply to all** button that copies that clip's settings to every other clip; in multi-select mode (with **Select all / Deselect all**) you can **Edit N** selected clips at once. Both bulk paths copy the shared config (reframe / Smart Cut / subtitles / hook style / logo) but keep each clip's own manual trim and hook text, and reprocess with a bounded concurrency so the box isn't flooded with subprocesses.
+```powershell
+pip install -e ".[host-tests]"
+pip install pytest ruff
+pytest -m "not integration" -q
+ruff check src/clippyme tests --select E9,F63,F7,F82
+```
 
-**Custom fonts**: upload a `.ttf`/`.otf` (e.g. a licensed Stratos) in Settings → Brand assets and it appears in the classic-subtitle and hook font pickers, resolved at burn time from the writable `data/fonts/` dir alongside the bundled faces.
+Frontend:
 
-Editing is staged: nothing runs while you toggle. **Apply & reprocess** re-renders the framing (only when the reframe mode changed) and then composes the active layers in one pass via `/api/compose/{job_id}/{clip_index}`: order is **Grade → Subtitles → Smart Cut → Hook → Logo** (grade first so the overlays keep their authored colour; subtitles burn next so their absolute timing never drifts when Smart Cut removes silences; the logo sits on top of everything). Adjacent layers are fused into shared ffmpeg passes (grade+subtitles in one, hook+logo in one), so a fully-toggled compose is 3 encodes instead of 5 — noticeably faster downloads with zero quality change. Reprocessing runs in the **background**: Apply closes the modal immediately and the clip card shows a *Reprocessing…* overlay, so you can edit other clips meanwhile. The preview updates to the composed result, and downloading runs the same compose, so what you see is what you get. Downloaded clips are named after the AI-suggested title (sanitized for Windows: forbidden characters and reserved device names are stripped, length-capped, falling back to `clip_N`).
+```powershell
+Set-Location dashboard
+npm ci
+npm test
+npm run lint
+npm run build
+```
 
-**Apply runs in the background.** Hitting Apply closes the modal immediately and the reframe/compose work runs without blocking the page, the clip card shows a *Reprocessing…* overlay while it renders, and you can edit, reprocess, and publish other clips at the same time. Each clip is an independent job, so several can render at once.
+CV/ML integration:
 
----
+```powershell
+docker compose run --rm -u root backend sh -lc "pip install -q pytest && pytest -m integration"
+```
 
-## Reframing
+## Решение проблем
 
-Pick one of three modes per job (and per clip after the fact, from the **Edit & reprocess** panel or `POST /api/reframe`):
+### Порты 5175 или 8000 заняты
 
-- **Auto**: face tracking. The default; runs the per-scene strategy picker below.
-- **Subject** (the CLI value is `subject`; `object` still works as a legacy alias): [FrameShift](https://github.com/fralapo/FrameShift) face-first crop. Computes a weighted-interest centroid over **every** detection in the frame — faces (weight 1.0), persons (0.8) and other on-screen objects (default 0.5, the FrameShift GUI sliders), each scaled by area and confidence — then crops a 9:16 window on it. A face pulls the camera hardest, so a talking head stays framed while relevant objects (a product, a dog, a car) still bias the crop; a shot with no detectable subject falls back to a black-padded letterbox. Tune the weights with `REFRAME_FRAMESHIFT_WEIGHTS`.
-- **Off**: no reframe: a 4:3 center crop inside the 9:16 frame with black bars.
+```powershell
+Get-NetTCPConnection -State Listen -LocalPort 5175,8000
+docker compose down
+```
 
-Inside **Auto**, three per-scene strategies are decided by sampling 7 frames per scene:
+Остановите конфликтующий процесс либо измените опубликованные порты в локальном compose override.
 
-- **TRACK**: a single, near-static speaker → a crop locked on the face. The camera holds still; it does not pan around with the subject. (`SpeakerTracker` MAR-variance selection and `SmoothedCameraman` still run in pass 1 to find the face; the static policy then pins the shot.)
-- **WIDE**: two or more faces in the scene, *or* a single subject that moves too far to hold without panning → a locked, zoomed-out crop that keeps everyone in frame with no camera motion. Movement is measured by how far the primary face travels across the sampled frames (`REFRAME_MOTION_WIDE_THRESH`, default 0.12 of the frame); past that, chasing the subject would cause the exact motion we're trying to avoid, so we pull back instead.
-- **GENERAL**: no faces → letterbox.
+### После `git pull` frontend ведёт себя странно
 
-**Static framing (`REFRAME_STATIC_AUTO`, default on):** the rule that ties the strategies together is that the camera never moves *within* a shot. Each scene collapses to a single fixed crop, TRACK locks on the face (zoom capped so it's framed, not shoved in your face), WIDE locks zoomed-out between the faces. Zoom can still change *across* a cut, which reads as a new shot rather than camera motion. This is the deterministic end-state of comfort mode; set `REFRAME_STATIC_AUTO=0` to go back to the eased-but-moving Savitzky-Golay smoother. The decision math (`centroid_span`, `collapse_scene_targets`) is pure and host-tested.
+Если изменились зависимости:
 
-**Lost-subject recovery:** in TRACK/WIDE, if no speaker is detected for `REFRAME_LOST_HOLD` frames (~3 s) the camera eases back to the source center and gently zooms out instead of freezing on empty space. The active-speaker camera can optionally use a 1€ adaptive filter (`REFRAME_SMOOTHER=euro`) or a momentum/damped-spring smoother (`REFRAME_SMOOTHER=spring`) in place of the default two-speed EMA, with an optional hard pan-rate cap (`REFRAME_MAX_STEP_PX`). The pure decision math lives in the cv2-free, host-tested `clippyme.pipeline.reframe_ops` module; ffprobe-backed A/V-sync helpers (VFR detection, stream `start_time`, fps reconcile) live alongside in `media_probe.py`.
+```powershell
+docker compose down -v
+docker compose up --build
+```
 
-**Comfort mode (`REFRAME_COMFORT`, default on):** continuous face-tracking is what makes auto-reframes feel like seasickness, the camera is always gently moving, and the changing velocity (plus a zoom that breathes mid-shot) is the actual nausea trigger, not pixel jitter. So the default render now biases toward a *still* camera the way [AutoFlip](https://research.google/blog/autoflip-an-open-source-framework-for-intelligent-video-reframing/) does: a two-pass global trajectory smoother Savitzky-Golay-smooths the whole camera path per scene (the alternative `REFRAME_GLOBAL_METHOD=kalman`/`l2` pan-path solvers are reachable only with `REFRAME_STATIC_AUTO=0` — the default static-auto policy collapses each scene to a single locked crop before they would run), a per-scene **stationary lock** (`REFRAME_STATIONARY_THRESH`, default `0.30`) pins near-static scenes to a locked tripod (with `REFRAME_SNAP_CENTER`), and **per-scene zoom lock** (`REFRAME_ZOOM_LOCK`) holds one zoom level per shot so the frame never breathes. It costs a second video decode; set `REFRAME_COMFORT=0` to fall back to the original single-pass streaming tracker. See [`docs/reframe-improvements-research.md`](docs/reframe-improvements-research.md) for the measured comparison.
+`-v` удалит анонимный volume `node_modules`, но не bind-mounted `data/`. Всё равно проверьте Docker volumes перед командой.
 
-Override per job with `--reframe-mode auto|subject|disabled` (`subject` = the FrameShift face-first crop above, with `object` accepted as a legacy alias; `disabled` = 4:3 center crop with black bars).
+### YouTube выдаёт 403 или проверку бота
 
-After a job completes, every clip can be flipped between all three modes post-hoc via `POST /api/reframe/{job_id}/{clip_index}` (the **Edit & reprocess** panel exposes the three modes and applies the switch on **Apply**). The original 16:9 source slice is preserved as `source_<clip>.mp4` to make this latency-tolerant. Legacy jobs without the preserved slice return HTTP 409.
+1. Откройте `Settings → Downloads`.
+2. Загрузите Netscape `cookies.txt` из собственного браузера.
+3. Либо скопируйте `docker-compose.override.example.yml` в `docker-compose.override.yml` и задайте `CLIPPYME_FIREFOX_PROFILE_HOST_PATH` на профиль с `cookies.sqlite`.
 
----
+Не публикуйте cookies и не добавляйте профиль браузера в репозиторий.
 
-## Publishing (Zernio)
+### Gemini сообщает quota/rate limit
 
-`POST /api/publish/{job_id}/{clip_index}` uploads the clip to Zernio's presigned URL and schedules a post. Three scheduling modes:
+- выберите более доступную модель;
+- проверьте квоту/биллинг в Google AI Studio;
+- оставьте `GEMINI_FALLBACK_MODELS`;
+- временно отключите `Find viral moments`.
 
-- `now`: immediate
-- `auto`: `SmartScheduler` picks the next free Italian-prime-time slot per weekday, with a 90-minute minimum gap and anti-collision against already-scheduled posts (3-step algorithm: free prime-time window → 15-min scan 07–23 → fallback)
-- `manual`: caller passes an ISO 8601 `scheduled_for`
+### Deepgram или ElevenLabs не работает
 
-The dashboard's unified `PublishModal` publishes the selected clips concurrently in one click, each row showing live queued → uploading → live/error status. With `auto` it spreads one clip per day from a chosen start date (mirroring the original `tmp/programma_shorts.py` logic) to stay under per-platform daily caps; any residual Zernio daily-limit 429 is surfaced verbatim per clip instead of failing the whole batch.
+Проверьте ключ, квоту и выбранный `Transcription engine`. При сбое ClippyMe переходит на Faster-Whisper, поэтому первая локальная модель может скачиваться долго.
 
----
+### Не хватает памяти или места
 
-## Live monitor (auto clip & publish)
+- выберите Whisper `base`/`small`;
+- уменьшите `MAX_CONCURRENT_JOBS`;
+- используйте облачную транскрипцию;
+- включите NVIDIA-профиль;
+- удалите ненужные задания через `History`;
+- оставьте запас через `CLIPPYME_MIN_FREE_DISK_GB`.
 
-The **Live Monitor** tab watches a channel and turns its content into published shorts hands-free. Multiple monitors run in parallel (one per platform+channel), state survives restarts (`data/live_monitor.json`).
+### Zernio не видит аккаунты
 
-- **Platforms & modes**: **Kick** and **Twitch** in `live` mode (real-time: capture the ongoing stream in 30-min segments, clip each segment, auto-publish) or `vod` mode (process each new VOD as it's uploaded); **YouTube** watches the channel's long-form uploads via RSS (Shorts structurally excluded) and clips every new video from activation onward.
-- **Prelive skip**: the first 30 minutes of every stream (configurable) are skipped — anchored to the *stream's* start time, so a monitor started mid-stream doesn't wait a redundant window.
-- **Backfill**: starting a monitor on a channel that's already been live for hours doesn't lose the past. On **Twitch** the missed span is range-downloaded from the in-progress archive VOD (matched by `stream_id`) in parallel with the forward capture. **Kick** publishes no VOD until the stream ends, so missed windows are recorded and recovered from the replay right after the live finishes. Requires the streamer to have past-broadcast storage enabled.
-- **Auto layout**: monitor clips default to reframe off (letterbox), full-clip hook on top, attribution banner attached under the video band, left-aligned subtitles below — all overridable per monitor.
-- **Publishing**: no daily cap, but a global ≥15-minute gap between posts across *all* monitors; `{title}`/`{hook}` placeholders in the title/caption templates; optional per-monitor AI instructions feed the Gemini prompt.
+Проверьте ключ и подключённые аккаунты, затем снова нажмите `Discover from Zernio`. При проблеме TLS можно задать:
 
----
+```env
+ZERNIO_BASE_URL=https://api.zernio.com/api/v1
+```
 
-## Security posture
+## Структура репозитория
 
-This project has been audited; the current state is suitable for **trusted LAN deployment**. Notable hardening already in place:
+```text
+clippyme/
+├── src/clippyme/
+│   ├── api/            # FastAPI и HTTP-маршруты
+│   ├── domain/         # задания, редактор, история, публикация, monitor
+│   ├── integrations/   # Zernio, Twitch, Kick, YouTube
+│   ├── pipeline/       # загрузка, транскрипция, Gemini, reframe, QA
+│   └── storage/        # локальная конфигурация
+├── dashboard/          # React/Vite-интерфейс
+├── docs/               # архитектура и исследовательские материалы
+├── tests/              # backend-тесты
+├── data/               # локальные данные, не для Git
+├── docker-compose.yml
+├── docker-compose.gpu.yml
+└── .env.example
+```
 
-- Strict UUID4 validation on every `{job_id}` path parameter.
-- Trusted-origin guard on every config-mutation endpoint (cookies upload, Gemini key probe, Zernio config).
-- Pydantic patterns on all subtitle / hook fields (font name, hex colors, file names) to prevent FFmpeg filtergraph injection.
-- `_ffmpeg_filter_escape()` covers `\\ : ' , ; [ ]` and is re-applied even on direct internal callers.
-- Subprocess calls use list-form argv with whitelisted `reframe_mode` and bounded `instructions` length, no shell interpolation.
-- Uploaded media files are saved with a server-generated name (extension whitelisted): the client-supplied filename is discarded.
-- `data/config.json` and `data/cookies.txt` are written with mode `0600`.
-- Internal exceptions never leak `str(e)` to API clients; full stack traces are logged server-side only.
-- `ZERNIO_BASE_URL` env override is allowlisted to `https://*.zernio.com`.
-- A secret-scan **pre-commit hook** (`.githooks/pre-commit`) blocks committing API keys, tokens, cookie files, `data/config.json`, and `.env`. Enable per clone: `git config core.hooksPath .githooks`.
-- **CSRF protection**: config-mutation endpoints reject any request whose `Sec-Fetch-Site` is `cross-site`/`same-site` (a browser-set forbidden header JS can't forge), then fall back to an `Origin` allowlist, so a cross-site `<form>` POST can't reach them.
-- **Per-client rate limiting** (`RATE_LIMIT_ENABLED`, default on): a dependency-free token bucket throttles the compute-heavy endpoints (`process` / `batch` / `publish`) per client IP; the bucket table is bounded against a unique-IP-flood memory DoS.
-- **Spoof-resistant client IP**: `X-Forwarded-For` / `X-Real-IP` are honoured only when `TRUST_PROXY=1` **and** the TCP peer is itself a private/loopback proxy, so a direct public client can't forge its address to dodge the rate limiter or the trusted-origin guard. Within `X-Forwarded-For` the backend reads the **last** hop — the address the proxy itself wrote — so it stays spoof-proof whether your proxy appends to the header (nginx's `$proxy_add_x_forwarded_for`, as shipped) or overwrites it. Exactly one trusted proxy is supported; don't enable it behind a proxy chain.
-- **SSRF hardening**: download + Zernio upload URLs are re-resolved and rejected when every resolved address is internal/loopback/link-local (DNS-rebinding-aware), with the DNS lookup bounded by a daemon-thread timeout (no process-global socket state).
-- **Loopback by default**: both published ports bind to `127.0.0.1` (`CLIPPYME_BIND`). The trust model treats every private-network peer as an authorized client for config/state endpoints, so LAN exposure is opt-in, not the default.
-- **Optional API token** (`CLIPPYME_API_TOKEN`): when set, an app middleware requires the shared secret on every `/api` request (`X-API-Token` or `Authorization: Bearer`, constant-time compare) — the auth layer for deliberate LAN deployments. Static media mounts stay IP-open (`<video>`/FontFace can't send custom headers).
+Дополнительные материалы:
 
-**Not yet in place** (required before exposing publicly): a reverse proxy terminating TLS + security headers.
+- [`docs/runtime-quality.md`](docs/runtime-quality.md) — повторы, preflight, checkpoint и QA;
+- [`docs/architecture-history.md`](docs/architecture-history.md) — история архитектуры;
+- [`docs/reframe-improvements-research.md`](docs/reframe-improvements-research.md) — стабилизация камеры;
+- [`docs/title-hook-copy-research.md`](docs/title-hook-copy-research.md) — названия и hooks;
+- [`TESTING.md`](TESTING.md) — расширенная инструкция по тестам.
 
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
+## Лицензия и происхождение
 
----
+ClippyMe — self-hosted fork OpenShorts с расширенным pipeline, устойчивой очередью, несколькими провайдерами транскрипции, редактором, Live Monitor и публикацией через Zernio. Условия использования находятся в [`LICENSE`](LICENSE).
 
-## CPU vs GPU
-
-The CPU image runs everywhere (Linux x86_64, ARM64, Apple Silicon via Docker Desktop). Faster-Whisper falls back to CPU automatically and YOLOv8 uses the CPU path. The Dockerfile installs a shared dependency base plus the CPU-only PyTorch wheels, so the default image does not carry CUDA libraries. The NVIDIA profile adds only the cu126 PyTorch wheels, `nvidia-cublas-cu12`, and the cuDNN runtime; expect a ~500 MB image-size overhead. `requirements.lock` remains the full resolver/audit lock, while `requirements.base.lock` is the CUDA-free install input used by Docker.
-
----
-
-## Acknowledgements
-
-- [OpenShorts](https://github.com/SamurAIGPT/Open-Source-Shorts-Maker): original starting point.
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp), [Faster-Whisper](https://github.com/SYSTRAN/faster-whisper), [Deepgram](https://deepgram.com), [Google Gemini](https://ai.google.dev), [Ultralytics YOLO](https://github.com/ultralytics/ultralytics), [MediaPipe](https://github.com/google/mediapipe), [auto-editor](https://github.com/WyattBlue/auto-editor), [Zernio](https://zernio.com).
-- [ClipsAI](https://github.com/ClipsAI/clipsai): TextTiling topic-segmentation algorithm (the no-AI clip-finding fallback is a lexical port; see [`docs/clipsai-analysis.md`](docs/clipsai-analysis.md)).
-- [React](https://react.dev), [Vite](https://vitejs.dev), [Tailwind CSS](https://tailwindcss.com), [lucide](https://lucide.dev).
-- Reframe-algorithm research studied and selectively ported (see `docs/*-analysis.md`): [fralapo/FrameShift](https://github.com/fralapo/FrameShift) (weighted-object interest region → the `object` reframe mode), [gauravzazz/smart-reframe](https://github.com/gauravzazz/smart-reframe), [KazKozDev/auto-vertical-reframe](https://github.com/KazKozDev/auto-vertical-reframe), [obi19999/smart-video-reframe](https://github.com/obi19999/smart-video-reframe), [mfahsold/montage-ai](https://github.com/mfahsold/montage-ai), [kamilstanuch/Autocrop-vertical](https://github.com/kamilstanuch/Autocrop-vertical).
+<p align="right"><a href="#readme-top">Наверх ↑</a></p>
